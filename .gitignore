@@ -1,0 +1,9 @@
+# Built binary
+/sandbox-mcp
+CommitMsg-draft.md
+
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
