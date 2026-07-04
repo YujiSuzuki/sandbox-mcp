@@ -2,17 +2,21 @@
 
 [日本語版はこちら](README.ja.md)
 
-A lightweight MCP (Model Context Protocol) server that lets AI automatically discover and run your scripts — just drop them in `.sandbox/scripts/` with no per-tool MCP registration needed.
+A **lightweight MCP (Model Context Protocol) server that runs inside your container**. It communicates with AI agents like Claude Code via stdio and auto-discovers scripts and tools placed in `.sandbox/scripts/` or `.sandbox/tools/`, making them available for AI to run autonomously.
+
+- Drop scripts you want AI to run — AI discovers them automatically
+- No need to tell AI the script path or usage every time
+- AI reads the purpose and usage directly from header comments
 
 ## Overview
 
-SandboxMCP is part of the **AI Sandbox** ecosystem:
+Relationship with **AI Sandbox** and **HostMCP**:
 
 | | SandboxMCP | [HostMCP](https://github.com/YujiSuzuki/hostmcp) | [AI Sandbox](https://github.com/YujiSuzuki/ai-sandbox) |
 |---|---|---|---|
 | Location | Inside container | Host OS | Template / environment |
 | Transport | stdio | SSE (HTTP) | — |
-| Purpose | Script/tool discovery | Cross-container access | Ties everything together |
+| Purpose | Script/tool discovery | Docker containers, host tools & host OS commands | Container setup & secret management template |
 | Startup | Auto (Claude Code) | Manual (`hostmcp serve`) | — |
 
 **Typical setup:**
@@ -20,12 +24,12 @@ SandboxMCP is part of the **AI Sandbox** ecosystem:
 ```
 AI Sandbox (container)
   └─ SandboxMCP (stdio)   ← discovers .sandbox/scripts/ and .sandbox/tools/
-  └─ HostMCP (via HTTP)   ← relays access to other containers on host OS
+  └─ hostmcp client (via HTTP)   ← communicates with HostMCP server on the host OS
         ↓
-  Host OS: HostMCP server → API container, DB container, …
+Host OS: HostMCP server → API container, DB container, host tools, …
 ```
 
-> **Using AI Sandbox?** SandboxMCP is automatically installed and registered each time the container starts — no manual steps needed.
+> **Using AI Sandbox?** SandboxMCP is automatically installed and registered when the container starts — no manual steps needed.
 > 
 > **Using your own existing container?** Follow the installation steps below to add SandboxMCP to it.
 
@@ -120,6 +124,8 @@ When you ask the AI to run a script or tool, it works behind the scenes in this 
 
 ## Adding Scripts and Tools
 
+Sample scripts and tools can be found in [AI Sandbox](https://github.com/YujiSuzuki/ai-sandbox) under `.sandbox/scripts/` and `.sandbox/tools/`.
+
 ### Scripts (`.sandbox/scripts/`)
 
 Shell scripts with a header comment for description:
@@ -152,7 +158,6 @@ Shell scripts with a header comment for description:
 
 | Env | Scripts |
 |-----|---------|
-| `host` — rejected by `run_script` with guidance to run on host OS | `init-host-env.sh` |
 | `container` — container-only | `sync-secrets.sh`, `validate-secrets.sh`, `sync-compose-secrets.sh` |
 | `any` — runs anywhere | All others |
 

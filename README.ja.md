@@ -2,17 +2,21 @@
 
 [English README is here](README.md)
 
-`.sandbox/scripts/` にスクリプトを置くだけで、AI が自動的に発見・実行できる軽量 MCP（Model Context Protocol）サーバーです。各ツールを MCP に個別登録する手間がかかりません。
+**コンテナ内で動作する軽量 MCP（Model Context Protocol）サーバー**です。Claude Code などの AI エージェントと stdio で通信し、`.sandbox/scripts/` や `.sandbox/tools/` に置いたスクリプト・ツールを自動検出して、AI が自律的に実行できるようにします。
+
+- AI に実行してほしいスクリプトを置くだけで AI が自動的に発見できる
+- スクリプトのパスや使い方を AI に毎回伝える必要がない
+- ヘッダーコメントから目的・使い方を AI が自分で読める
 
 ## 概要
 
-SandboxMCP は **AI Sandbox** エコシステムの一部です:
+**AI Sandbox**・**HostMCP** との関係:
 
 | | SandboxMCP | [HostMCP](https://github.com/YujiSuzuki/hostmcp) | [AI Sandbox](https://github.com/YujiSuzuki/ai-sandbox) |
 |---|---|---|---|
 | 動作場所 | コンテナ内 | ホスト OS | テンプレート／環境 |
 | トランスポート | stdio | SSE (HTTP) | — |
-| 用途 | スクリプト/ツール検出 | コンテナ間アクセス | 全体をまとめる |
+| 用途 | スクリプト/ツール検出 | Docker コンテナ・ホストツール・ホスト OS コマンド | 環境構築・秘匿管理テンプレート |
 | 起動 | 自動（Claude Code） | 手動（`hostmcp serve`） | — |
 
 **典型的な構成:**
@@ -20,12 +24,12 @@ SandboxMCP は **AI Sandbox** エコシステムの一部です:
 ```
 AI Sandbox（コンテナ）
   └─ SandboxMCP（stdio）  ← .sandbox/scripts/ と .sandbox/tools/ を検出
-  └─ HostMCP（HTTP 経由）  ← ホスト OS 上の他コンテナへのアクセスを中継
+  └─ hostmcp client（HTTP 経由）  ← ホスト OS の HostMCP サーバーと通信
         ↓
-  ホスト OS: HostMCP サーバー → API コンテナ、DB コンテナ など
+ホスト OS: HostMCP サーバー → API コンテナ、DB コンテナ、ホストツール など
 ```
 
-> **AI Sandbox を使っている場合:** コンテナ起動のたびに自動でインストール・登録されます。手動での作業は不要です。
+> **AI Sandbox を使っている場合:** コンテナ起動時に自動でインストール・登録されます。手動での作業は不要です。
 >
 > **既存の開発コンテナに追加したい場合:** 以下のインストール手順に従ってください。
 
@@ -120,6 +124,8 @@ tools_dir: ".sandbox/tools"
 
 ## スクリプトとツールの追加
 
+[AI Sandbox](https://github.com/YujiSuzuki/ai-sandbox) の `.sandbox/scripts/` と `.sandbox/tools/` にサンプルがあります。参考にしてください。
+
 ### スクリプト（`.sandbox/scripts/`）
 
 ヘッダーコメントで説明を記述したシェルスクリプト:
@@ -152,7 +158,6 @@ tools_dir: ".sandbox/tools"
 
 | Env | スクリプト |
 |-----|-----------|
-| `host` — `run_script` で拒否され、ホスト上での実行方法が案内される | `init-host-env.sh` |
 | `container` — コンテナ内専用 | `sync-secrets.sh`, `validate-secrets.sh`, `sync-compose-secrets.sh` |
 | `any` — どこでも実行可能 | それ以外すべて |
 

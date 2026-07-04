@@ -13,28 +13,17 @@ import (
 type ScriptInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Environment string `json:"environment"` // "host", "container", "any"
+	Environment string `json:"environment"` // "container", "any"
 	Category    string `json:"category"`    // "utility", "test"
 	Usage       string `json:"usage,omitempty"`
 	Options     string `json:"options,omitempty"`
 }
 
-// Scripts that must run on host OS (from help.sh L40-41).
-// Note: copy-credentials.sh moved to .sandbox/host-tools/ (HostMCP host tools)
-var hostOnly = map[string]bool{
-	"init-host-env.sh": true,
-}
-
-// Scripts that must run in container (from help.sh L42-43).
+// Scripts that must run in container (from help.sh).
 var containerOnly = map[string]bool{
 	"sync-secrets.sh":         true,
 	"validate-secrets.sh":     true,
 	"sync-compose-secrets.sh": true,
-}
-
-// IsHostOnly returns true if the script can only run on the host OS.
-func IsHostOnly(name string) bool {
-	return hostOnly[name]
 }
 
 // ListScripts returns metadata for all scripts in the directory.
@@ -229,9 +218,6 @@ func stripComment(line string) string {
 }
 
 func classifyEnvironment(name string) string {
-	if hostOnly[name] {
-		return "host"
-	}
 	if containerOnly[name] {
 		return "container"
 	}

@@ -202,34 +202,6 @@ func TestToolsCallListScripts(t *testing.T) {
 	}
 }
 
-func TestHostOnlyScriptRejection(t *testing.T) {
-	srv := newTestServer(t)
-
-	srv.HandleRequest(&jsonrpc.Request{
-		JSONRPC: "2.0",
-		ID:      float64(1),
-		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
-	})
-
-	callReq := &jsonrpc.Request{
-		JSONRPC: "2.0",
-		ID:      float64(2),
-		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name":"run_script","arguments":{"name":"init-host-env.sh"}}`),
-	}
-	resp := srv.HandleRequest(callReq)
-
-	result, ok := resp.Result.(map[string]any)
-	if !ok {
-		t.Fatal("Expected map result")
-	}
-	isError, _ := result["isError"].(bool)
-	if !isError {
-		t.Error("Expected isError=true for host-only script")
-	}
-}
-
 func TestUnknownMethod(t *testing.T) {
 	srv := newTestServer(t)
 	req := &jsonrpc.Request{

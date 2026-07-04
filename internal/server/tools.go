@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/YujiSuzuki/sandbox-mcp/internal/executor"
 	"github.com/YujiSuzuki/sandbox-mcp/internal/jsonrpc"
@@ -50,7 +49,7 @@ func (s *Server) toolDefinitions() []toolDef {
 		},
 		{
 			Name:        "run_script",
-			Description: "Execute a script in the container. Host-only scripts will be rejected with guidance on how to run them on the host OS",
+			Description: "Execute a script in the container.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -207,17 +206,6 @@ func (s *Server) handleRunScript(id any, args json.RawMessage) *jsonrpc.Response
 	}
 	if err := json.Unmarshal(args, &params); err != nil || params.Name == "" {
 		return jsonrpc.NewResponse(id, errorContent("Missing required parameter: name"))
-	}
-
-	// Check if host-only
-	if scriptparser.IsHostOnly(params.Name) {
-		msg := fmt.Sprintf(
-			"This script (%s) must be run on the host OS, not inside the AI Sandbox.\n\n"+
-				"To run it on your host machine:\n"+
-				"  .sandbox/scripts/%s %s\n\n"+
-				"I cannot execute host-only scripts because the AI Sandbox does not have Docker socket access.",
-			params.Name, params.Name, strings.Join(params.Args, " "))
-		return jsonrpc.NewResponse(id, errorContent(msg))
 	}
 
 	result, err := executor.RunScript(s.scriptsDir, params.Name, params.Args)

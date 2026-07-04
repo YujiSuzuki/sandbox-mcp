@@ -66,10 +66,6 @@ func TestListScriptsEnvironment(t *testing.T) {
 
 	for _, s := range scripts {
 		switch s.Name {
-		case "init-host-env.sh":
-			if s.Environment != "host" {
-				t.Errorf("%s: environment = %q, want %q", s.Name, s.Environment, "host")
-			}
 		case "validate-secrets.sh", "sync-secrets.sh", "sync-compose-secrets.sh":
 			if s.Environment != "container" {
 				t.Errorf("%s: environment = %q, want %q", s.Name, s.Environment, "container")
@@ -127,15 +123,6 @@ func TestGetDetailedInfoPathTraversal(t *testing.T) {
 	_, err = GetDetailedInfo(dir, "foo/bar.sh")
 	if err == nil {
 		t.Error("Expected error for path with slash")
-	}
-}
-
-func TestIsHostOnly(t *testing.T) {
-	if !IsHostOnly("init-host-env.sh") {
-		t.Error("init-host-env.sh should be host-only")
-	}
-	if IsHostOnly("validate-secrets.sh") {
-		t.Error("validate-secrets.sh should not be host-only")
 	}
 }
 
@@ -452,7 +439,6 @@ func TestClassifyEnvironment(t *testing.T) {
 		name string
 		want string
 	}{
-		{"init-host-env.sh", "host"},
 		{"validate-secrets.sh", "container"},
 		{"sync-secrets.sh", "container"},
 		{"sync-compose-secrets.sh", "container"},
