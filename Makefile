@@ -6,10 +6,18 @@ CMD_DIR = .
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags="-X 'main.version=$(VERSION)'"
 
-.PHONY: build test test-version install register unregister clean
+.PHONY: build build-all test test-version install register unregister clean
 
 build:
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) $(CMD_DIR)
+
+build-all:
+	mkdir -p dist
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o dist/sandbox-mcp_windows_amd64.exe $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/sandbox-mcp_darwin_arm64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/sandbox-mcp_darwin_amd64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/sandbox-mcp_linux_amd64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/sandbox-mcp_linux_arm64 $(CMD_DIR)
 
 test:
 	go test ./...
@@ -79,3 +87,4 @@ unregister-gemini:
 
 clean:
 	rm -f $(BINARY)
+	rm -rf dist/
