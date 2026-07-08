@@ -134,6 +134,7 @@ Shell scripts with a header comment for description:
 #!/bin/bash
 # my-script.sh
 # Short description shown in list_scripts
+# @advertise: true
 #
 # Detailed usage information.
 #
@@ -146,7 +147,9 @@ Shell scripts with a header comment for description:
 
 - **Line 1**: Shebang
 - **Line 2**: Filename (skipped by the parser)
-- **Line 3+**: Description (shown in `list_scripts`)
+- **Line 3**: One-line description (shown in `list_scripts` and `<system-reminder>`)
+- **Line 4**: `@advertise: true` and other metadata. The description shown in `<system-reminder>` is limited to the line(s) above.
+- **`@advertise: true`**: The script is listed in `<system-reminder>` at the start of every conversation — the AI knows about it without needing to call `list_scripts` first
 - **`# ---`**: Parsing stops here; content below is for human readers only
 - **`Usage:` (or `使用法:` in Japanese)**: If present before `# ---`, shown by `get_script_info`
 

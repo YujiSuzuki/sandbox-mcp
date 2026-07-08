@@ -432,6 +432,97 @@ func TestParseDetailedHeaderUsageAfterSeparator(t *testing.T) {
 	}
 }
 
+// TestParseHeaderAdvertiseFlag verifies that @advertise: true sets Advertise = true.
+func TestParseHeaderAdvertiseFlag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "install.sh")
+	content := `#!/bin/bash
+# install.sh
+# Install a custom slash command
+# @advertise: true
+# ---
+# 日本語の説明
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if !info.Advertise {
+		t.Error("Expected Advertise = true for @advertise: true")
+	}
+	if info.Description != "Install a custom slash command" {
+		t.Errorf("Description = %q, want %q", info.Description, "Install a custom slash command")
+	}
+}
+
+// TestParseHeaderAdvertiseFlagNotInDescription verifies that @advertise does not appear in description.
+func TestParseHeaderAdvertiseFlagNotInDescription(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "install.sh")
+	content := `#!/bin/bash
+# install.sh
+# Install a custom slash command
+# @advertise: true
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if strings.Contains(info.Description, "@advertise") {
+		t.Errorf("Description should not contain @advertise, got %q", info.Description)
+	}
+}
+
+// TestParseHeaderDescriptionStopsAtMetadata verifies that lines after @advertise are not included in description.
+func TestParseHeaderDescriptionStopsAtMetadata(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "release.sh")
+	content := `#!/bin/bash
+# release.sh
+# Short description only
+# @advertise: true
+#
+# Usage:
+#   release.sh <version>
+# This line should not appear in description
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Description != "Short description only" {
+		t.Errorf("Description should stop at @advertise, got %q", info.Description)
+	}
+	if !info.Advertise {
+		t.Error("Expected Advertise = true")
+	}
+}
+
+// TestParseHeaderNoAdvertiseFlag verifies that Advertise defaults to false.
+func TestParseHeaderNoAdvertiseFlag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "normal.sh")
+	content := `#!/bin/bash
+# normal.sh
+# A normal script without advertise flag
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Advertise {
+		t.Error("Expected Advertise = false by default")
+	}
+}
+
 // TestClassifyEnvironment verifies environment classification for known script names.
 // These are pure string-to-string mappings with no filesystem dependency.
 func TestClassifyEnvironment(t *testing.T) {

@@ -4,26 +4,32 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/YujiSuzuki/sandbox-mcp/internal/jsonrpc"
+	"github.com/YujiSuzuki/sandbox-mcp/internal/scriptparser"
 	"github.com/YujiSuzuki/sandbox-mcp/internal/toolparser"
 )
 
 // Server handles MCP requests for sandbox scripts and tools.
 type Server struct {
-	scriptsDir  string
-	toolsDir    string
-	version     string
-	initialized bool
+	scriptsDir   string
+	toolsDir     string
+	workspaceDir string
+	version      string
+	initialized  bool
 }
 
 // New creates a new MCP server.
-func New(scriptsDir, toolsDir, version string) *Server {
+func New(scriptsDir, toolsDir, version, workspaceDir string) *Server {
 	return &Server{
-		scriptsDir: scriptsDir,
-		toolsDir:   toolsDir,
-		version:    version,
+		scriptsDir:   scriptsDir,
+		toolsDir:     toolsDir,
+		workspaceDir: workspaceDir,
+		version:      version,
 	}
 }
 
@@ -78,7 +84,80 @@ func (s *Server) buildInstructions() string {
 		sb.WriteString("\nUse list_tools for full details.\n")
 	}
 
+	scripts, err := scriptparser.ListScripts(s.scriptsDir)
+	if err == nil {
+		var advertised []scriptparser.ScriptInfo
+		for _, sc := range scripts {
+			if sc.Advertise {
+				advertised = append(advertised, sc)
+			}
+		}
+		if len(advertised) > 0 {
+			sb.WriteString("\nAvailable scripts (use run_script to execute):\n")
+			for _, sc := range advertised {
+				sb.WriteString(fmt.Sprintf("- %s: %s\n", sc.Name, sc.Description))
+			}
+			sb.WriteString("\nUse list_scripts for full details.\n")
+		}
+	}
+
+	repos := scanGitRepos(s.workspaceDir, 3)
+	if len(repos) > 0 {
+		sb.WriteString("\nNested git repositories (independent repos — run git commands from within each directory, not the workspace root):\n")
+		for _, r := range repos {
+			sb.WriteString(fmt.Sprintf("- %s\n", r))
+		}
+	}
+
 	return sb.String()
+}
+
+var skipDirs = map[string]bool{
+	"node_modules": true,
+	"vendor":       true,
+}
+
+// scanGitRepos finds independent git repositories nested inside workspaceDir,
+// up to maxDepth levels deep. The workspace root itself is excluded.
+func scanGitRepos(workspaceDir string, maxDepth int) []string {
+	if workspaceDir == "" {
+		return nil
+	}
+	var repos []string
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		if depth > maxDepth {
+			return
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		hasGit := false
+		for _, entry := range entries {
+			if entry.IsDir() && entry.Name() == ".git" {
+				hasGit = true
+				break
+			}
+		}
+		if hasGit && dir != workspaceDir {
+			rel, err := filepath.Rel(workspaceDir, dir)
+			if err == nil {
+				repos = append(repos, rel)
+			}
+			return
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.IsDir() || strings.HasPrefix(name, ".") || skipDirs[name] {
+				continue
+			}
+			walk(filepath.Join(dir, entry.Name()), depth+1)
+		}
+	}
+	walk(workspaceDir, 0)
+	sort.Strings(repos)
+	return repos
 }
 
 // toolsCallParams represents the params for tools/call.

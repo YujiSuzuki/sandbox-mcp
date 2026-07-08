@@ -134,6 +134,7 @@ tools_dir: ".sandbox/tools"
 #!/bin/bash
 # my-script.sh
 # list_scripts に表示される簡単な説明
+# @advertise: true
 #
 # 詳細な使い方。
 #
@@ -146,7 +147,9 @@ tools_dir: ".sandbox/tools"
 
 - **1行目**: Shebang
 - **2行目**: ファイル名（パーサーはスキップ）
-- **3行目以降**: 説明文（`list_scripts` に表示）
+- **3行目**: 1行の説明文（`list_scripts` や `<system-reminder>` に表示）
+- **4行目**: `@advertise: true` などのメタデータ。`<system-reminder>` に表示される説明は上記まで。
+- **`@advertise: true`**: AI との会話開始時に自動的に `<system-reminder>` へ掲載される。AI がこのスクリプトの存在を最初から把握できるようになる
 - **`# ---`**: ここで解析停止。以降は人間向けの内容
 - **`Usage:` または `使用法:`**: `# ---` より前にあれば `get_script_info` で表示。英語だけでも日本語だけでも構いません
 

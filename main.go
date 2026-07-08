@@ -75,6 +75,7 @@ func main() {
 		cfg.ScriptsDir,
 		cfg.ToolsDir,
 		version,
+		workspaceDir,
 	)
 
 	scanner := bufio.NewScanner(os.Stdin)

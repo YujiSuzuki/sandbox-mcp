@@ -14,7 +14,7 @@ import (
 // Use for protocol-level tests that do not require real script or tool files.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New(t.TempDir(), t.TempDir(), "test")
+	return New(t.TempDir(), t.TempDir(), "test", "")
 }
 
 // newServerWithFixtures creates a server with minimal fixture files.
@@ -38,6 +38,14 @@ func newServerWithFixtures(t *testing.T) *Server {
 			"# Tests validate-secrets\n"), 0755); err != nil {
 		t.Fatalf("failed to create test script fixture: %v", err)
 	}
+	// install-slash-command.sh: advertised script fixture
+	if err := os.WriteFile(filepath.Join(scriptsDir, "install-slash-command.sh"), []byte(
+		"#!/bin/bash\n"+
+			"# install-slash-command.sh\n"+
+			"# Install a custom slash command\n"+
+			"# @advertise: true\n"), 0755); err != nil {
+		t.Fatalf("failed to create advertised script fixture: %v", err)
+	}
 	// search-history.go: tool fixture with required header format
 	if err := os.WriteFile(filepath.Join(toolsDir, "search-history.go"), []byte(
 		"// search-history - searches AI conversation history\n"+
@@ -53,7 +61,7 @@ func newServerWithFixtures(t *testing.T) *Server {
 		t.Fatalf("failed to create tool fixture: %v", err)
 	}
 
-	return New(scriptsDir, toolsDir, "test")
+	return New(scriptsDir, toolsDir, "test", "")
 }
 
 // initServer initializes a test server and returns it ready for tools/call.
@@ -124,6 +132,34 @@ func TestInitialize(t *testing.T) {
 	}
 	if serverInfo["name"] != "sandbox-mcp" {
 		t.Errorf("serverInfo.name = %v, want %q", serverInfo["name"], "sandbox-mcp")
+	}
+}
+
+func TestInitializeInstructionsIncludesAdvertisedScripts(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected map result")
+	}
+	instructions, ok := result["instructions"].(string)
+	if !ok {
+		t.Fatal("Expected instructions string")
+	}
+	if !strings.Contains(instructions, "install-slash-command.sh") {
+		t.Errorf("Expected advertised script in instructions, got:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "validate-secrets.sh") {
+		t.Error("Non-advertised script should not appear in instructions")
 	}
 }
 
@@ -504,7 +540,7 @@ func TestToolsCallRunToolNonZeroExit(t *testing.T) {
 		"package main\nimport \"os\"\nfunc main() { os.Exit(1) }\n"), 0644); err != nil {
 		t.Fatalf("failed to create failing tool: %v", err)
 	}
-	srv := New(scriptsDir, toolsDir, "test")
+	srv := New(scriptsDir, toolsDir, "test", "")
 	srv.HandleRequest(&jsonrpc.Request{
 		JSONRPC: "2.0",
 		ID:      float64(1),
@@ -531,6 +567,134 @@ func TestToolsCallRunToolNonZeroExit(t *testing.T) {
 	text, _ := content[0]["text"].(string)
 	if !strings.Contains(text, "exit code") {
 		t.Errorf("Expected exit code info in tool output, got: %q", text)
+	}
+}
+
+func TestScanGitRepos_EmptyWorkspaceDir(t *testing.T) {
+	repos := scanGitRepos("", 3)
+	if repos != nil {
+		t.Errorf("Expected nil for empty workspaceDir, got %v", repos)
+	}
+}
+
+func TestScanGitRepos_EmptyWorkspace(t *testing.T) {
+	repos := scanGitRepos(t.TempDir(), 3)
+	if len(repos) != 0 {
+		t.Errorf("Expected no repos in empty workspace, got %v", repos)
+	}
+}
+
+func TestScanGitRepos_FindsNestedRepo(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, "my-app", ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := scanGitRepos(workspaceDir, 3)
+	if len(repos) != 1 || repos[0] != "my-app" {
+		t.Errorf("Expected [my-app], got %v", repos)
+	}
+}
+
+func TestScanGitRepos_ExcludesWorkspaceRoot(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := scanGitRepos(workspaceDir, 3)
+	if len(repos) != 0 {
+		t.Errorf("Expected workspace root excluded, got %v", repos)
+	}
+}
+
+func TestScanGitRepos_RespectsMaxDepth(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, "a", "b", ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if repos := scanGitRepos(workspaceDir, 1); len(repos) != 0 {
+		t.Errorf("Expected no repos at maxDepth=1, got %v", repos)
+	}
+	if repos := scanGitRepos(workspaceDir, 2); len(repos) != 1 {
+		t.Errorf("Expected 1 repo at maxDepth=2, got %v", repos)
+	}
+}
+
+func TestScanGitRepos_SkipsHiddenDirs(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, ".hidden", ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := scanGitRepos(workspaceDir, 3)
+	if len(repos) != 0 {
+		t.Errorf("Expected hidden dir to be skipped, got %v", repos)
+	}
+}
+
+func TestScanGitRepos_WorkspaceRootHasGitButStillScansSubdirs(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspaceDir, "nested-app", ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := scanGitRepos(workspaceDir, 3)
+	if len(repos) != 1 || repos[0] != "nested-app" {
+		t.Errorf("Expected [nested-app], got %v", repos)
+	}
+}
+
+func TestInitializeInstructionsIncludesGitRepos(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspaceDir, "my-app", ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(t.TempDir(), t.TempDir(), "test", workspaceDir)
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected map result")
+	}
+	instructions, ok := result["instructions"].(string)
+	if !ok {
+		t.Fatal("Expected instructions string")
+	}
+	if !strings.Contains(instructions, "my-app") {
+		t.Errorf("Expected nested git repo in instructions, got:\n%s", instructions)
+	}
+}
+
+func TestInitializeInstructionsNoGitReposSection(t *testing.T) {
+	srv := New(t.TempDir(), t.TempDir(), "test", t.TempDir())
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if strings.Contains(instructions, "Nested git") {
+		t.Errorf("Expected no git repos section when workspace has no nested repos, got:\n%s", instructions)
 	}
 }
 

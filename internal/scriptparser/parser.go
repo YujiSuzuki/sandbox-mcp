@@ -15,6 +15,7 @@ type ScriptInfo struct {
 	Description string `json:"description"`
 	Environment string `json:"environment"` // "container", "any"
 	Category    string `json:"category"`    // "utility", "test"
+	Advertise   bool   `json:"advertise,omitempty"`
 	Usage       string `json:"usage,omitempty"`
 	Options     string `json:"options,omitempty"`
 }
@@ -95,6 +96,7 @@ func parseHeader(path string) (ScriptInfo, error) {
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	var descLines []string
+	metadataSeen := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -117,8 +119,15 @@ func parseHeader(path string) (ScriptInfo, error) {
 			break
 		}
 
-		// Collect description lines (skip empty lines)
-		if content != "" {
+		// Parse @key: value metadata lines; stop description collection here
+		if strings.HasPrefix(content, "@") {
+			parseMetadata(&info, content)
+			metadataSeen = true
+			continue
+		}
+
+		// Collect description lines (skip empty lines, stop after metadata)
+		if content != "" && !metadataSeen {
 			descLines = append(descLines, content)
 		}
 	}
@@ -153,6 +162,7 @@ func parseDetailedHeader(path string) (ScriptInfo, error) {
 	var descLines []string
 	var usageLines []string
 	inUsage := false
+	metadataSeen := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -178,6 +188,13 @@ func parseDetailedHeader(path string) (ScriptInfo, error) {
 			break
 		}
 
+		// Parse @key: value metadata lines; stop description collection here
+		if strings.HasPrefix(stripped, "@") {
+			parseMetadata(&info, stripped)
+			metadataSeen = true
+			continue
+		}
+
 		// Detect usage section
 		if strings.HasPrefix(strings.ToLower(stripped), "usage:") || strings.HasPrefix(stripped, "使用法:") {
 			inUsage = true
@@ -193,8 +210,8 @@ func parseDetailedHeader(path string) (ScriptInfo, error) {
 			}
 			usageLines = append(usageLines, stripped)
 		} else {
-			// Collect description lines (skip empty lines)
-			if stripped != "" {
+			// Collect description lines (skip empty lines, stop after metadata)
+			if stripped != "" && !metadataSeen {
 				descLines = append(descLines, stripped)
 			}
 		}
@@ -208,6 +225,14 @@ func parseDetailedHeader(path string) (ScriptInfo, error) {
 	}
 
 	return info, nil
+}
+
+// parseMetadata reads a @key: value metadata line and updates info fields.
+func parseMetadata(info *ScriptInfo, line string) {
+	if strings.HasPrefix(line, "@advertise:") {
+		val := strings.TrimSpace(strings.TrimPrefix(line, "@advertise:"))
+		info.Advertise = val == "true"
+	}
 }
 
 func stripComment(line string) string {
