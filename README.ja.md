@@ -115,12 +115,51 @@ tools_dir: ".sandbox/tools"
 |--------|------|
 | `list_scripts` | スクリプト一覧を表示。オプション: `category` フィルタ（`"utility"` / `"test"` / `"all"`） |
 | `get_script_info` | スクリプトの詳細情報を取得 |
-| `run_script` | スクリプトを実行。ホスト専用スクリプトは手動実行のヒント付きで拒否される |
+| `run_script` | スクリプトを実行 |
 | `list_tools` | 利用可能な Go ツールを一覧表示 |
 | `get_tool_info` | ツールの詳細情報を取得 |
 | `run_tool` | `go run` で Go ツールを実行。タイムアウト: 30 秒 |
 
 > **注:** `run_script` も 30 秒でタイムアウトします。長時間かかるスクリプトはバックグラウンド処理などで対応してください。
+
+## 起動時コンテキスト
+
+起動時に SandboxMCP は AI 向けのコンテキストを自動的に構築し、MCP の `instructions`（Claude Code では `<system-reminder>` として表示）に含めます。AI がワークスペースの構成を把握するために毎回説明する手間がなくなります。
+
+### ネストされた git リポジトリの自動検出
+
+SandboxMCP は起動時にワークスペース内の独立した git リポジトリをスキャン（最大 3 階層）し、instructions に一覧を追加します。AI が誤ったディレクトリで git コマンドを実行するミスを防ぎます。
+
+`<system-reminder>` への出力例:
+```
+Nested git repositories (independent repos — run git commands from within each directory, not the workspace root):
+- sandbox-mcp
+```
+
+### セットアップスクリプト（`.sandbox/sandbox-mcp-setup/`）
+
+`.sandbox/sandbox-mcp-setup/` にシェルスクリプトを置くと、起動時にカスタムコンテキストを注入できます。スクリプトはアルファベット順に実行され、stdout が instructions に追記されます。
+
+```
+.sandbox/sandbox-mcp-setup/
+├── find-git-repos.sh   # 例: 現在のブランチ付きでリポジトリ一覧を表示
+└── check-env.sh        # 例: 必要な環境変数の確認
+```
+
+スクリプトは `bash` で実行され、タイムアウトは 5 秒です。失敗・タイムアウトしたスクリプトはサイレントスキップされます。
+
+スクリプト例（`.sandbox/sandbox-mcp-setup/find-git-repos.sh`）:
+```bash
+#!/bin/bash
+WORKSPACE="${WORKSPACE_DIR:-/workspace}"
+find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
+  | grep -v "^$WORKSPACE/.git$" | sed 's|/.git$||' | sort \
+  | while IFS= read -r repo_path; do
+      rel="${repo_path#"$WORKSPACE"/}"
+      branch=$(git -C "$repo_path" branch --show-current 2>/dev/null || echo "detached")
+      echo "- $rel (branch: $branch)"
+    done
+```
 
 ## スクリプトとツールの追加
 

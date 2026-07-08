@@ -698,6 +698,99 @@ func TestInitializeInstructionsNoGitReposSection(t *testing.T) {
 	}
 }
 
+func TestRunSetupScripts_EmptyPath(t *testing.T) {
+	if out := runSetupScripts(""); out != "" {
+		t.Errorf("Expected empty output for empty path, got %q", out)
+	}
+}
+
+func TestRunSetupScripts_NonexistentDir(t *testing.T) {
+	if out := runSetupScripts("/nonexistent/path"); out != "" {
+		t.Errorf("Expected empty output for nonexistent dir, got %q", out)
+	}
+}
+
+func TestRunSetupScripts_EmptyDir(t *testing.T) {
+	if out := runSetupScripts(t.TempDir()); out != "" {
+		t.Errorf("Expected empty output for empty dir, got %q", out)
+	}
+}
+
+func TestRunSetupScripts_RunsShScript(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "info.sh"), []byte("#!/bin/bash\necho 'hello from setup'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	out := runSetupScripts(dir)
+	if !strings.Contains(out, "hello from setup") {
+		t.Errorf("Expected script output, got %q", out)
+	}
+}
+
+func TestRunSetupScripts_SkipsNonShFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "info.py"), []byte("print('should not run')\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	out := runSetupScripts(dir)
+	if strings.Contains(out, "should not run") {
+		t.Errorf("Expected non-.sh files to be skipped, got %q", out)
+	}
+}
+
+func TestRunSetupScripts_HandlesFailedScript(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fail.sh"), []byte("#!/bin/bash\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Should not panic; failed scripts are silently skipped
+	_ = runSetupScripts(dir)
+}
+
+func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "b.sh"), []byte("#!/bin/bash\necho 'B'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.sh"), []byte("#!/bin/bash\necho 'A'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	out := runSetupScripts(dir)
+	aIdx := strings.Index(out, "A")
+	bIdx := strings.Index(out, "B")
+	if aIdx == -1 || bIdx == -1 || aIdx > bIdx {
+		t.Errorf("Expected A before B in output, got %q", out)
+	}
+}
+
+func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
+	workspaceDir := t.TempDir()
+	setupDir := filepath.Join(workspaceDir, ".sandbox", "sandbox-mcp-setup")
+	if err := os.MkdirAll(setupDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(setupDir, "info.sh"), []byte("#!/bin/bash\necho 'custom project info'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(t.TempDir(), t.TempDir(), "test", workspaceDir)
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if !strings.Contains(instructions, "custom project info") {
+		t.Errorf("Expected setup script output in instructions, got:\n%s", instructions)
+	}
+}
+
 func TestToolsCallListScriptsFilterCategory(t *testing.T) {
 	srv := initServerWithFixtures(t)
 

@@ -115,12 +115,51 @@ When you ask the AI to run a script or tool, it works behind the scenes in this 
 |------|-------------|
 | `list_scripts` | List available scripts. Optional: `category` filter (`"utility"` / `"test"` / `"all"`) |
 | `get_script_info` | Get detailed info about a specific script |
-| `run_script` | Execute a script. Host-only scripts are rejected with guidance on how to run them manually |
+| `run_script` | Execute a script |
 | `list_tools` | List available Go tools |
 | `get_tool_info` | Get detailed info about a specific tool |
 | `run_tool` | Execute a Go tool via `go run`. Timeout: 30 seconds |
 
 > **Note:** `run_script` also has a 30-second timeout. Scripts that need more time should handle this themselves (e.g. run a background process).
+
+## Startup Context
+
+At startup, SandboxMCP automatically builds context for the AI and includes it in the MCP `instructions` (shown as `<system-reminder>` in Claude Code). This helps the AI understand your workspace without manual explanation.
+
+### Nested Git Repository Detection
+
+SandboxMCP scans the workspace for independent git repositories (up to 3 levels deep) and lists them in the instructions. This prevents the AI from accidentally running git commands in the wrong directory.
+
+Example output in `<system-reminder>`:
+```
+Nested git repositories (independent repos — run git commands from within each directory, not the workspace root):
+- sandbox-mcp
+```
+
+### Setup Scripts (`.sandbox/sandbox-mcp-setup/`)
+
+Place shell scripts in `.sandbox/sandbox-mcp-setup/` to inject custom context at startup. Scripts run in alphabetical order; their stdout is appended to the instructions.
+
+```
+.sandbox/sandbox-mcp-setup/
+├── find-git-repos.sh   # e.g. show repos with current branch
+└── check-env.sh        # e.g. verify required environment variables
+```
+
+Scripts are executed with `bash` and have a 5-second timeout. Failed or timed-out scripts are silently skipped.
+
+Example (`.sandbox/sandbox-mcp-setup/find-git-repos.sh`):
+```bash
+#!/bin/bash
+WORKSPACE="${WORKSPACE_DIR:-/workspace}"
+find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
+  | grep -v "^$WORKSPACE/.git$" | sed 's|/.git$||' | sort \
+  | while IFS= read -r repo_path; do
+      rel="${repo_path#"$WORKSPACE"/}"
+      branch=$(git -C "$repo_path" branch --show-current 2>/dev/null || echo "detached")
+      echo "- $rel (branch: $branch)"
+    done
+```
 
 ## Adding Scripts and Tools
 

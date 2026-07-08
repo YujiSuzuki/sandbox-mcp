@@ -2,12 +2,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/YujiSuzuki/sandbox-mcp/internal/jsonrpc"
 	"github.com/YujiSuzuki/sandbox-mcp/internal/scriptparser"
@@ -109,6 +112,52 @@ func (s *Server) buildInstructions() string {
 		}
 	}
 
+	if s.workspaceDir != "" {
+		setupDir := filepath.Join(s.workspaceDir, ".sandbox", "sandbox-mcp-setup")
+		if out := runSetupScripts(setupDir); out != "" {
+			sb.WriteString("\n")
+			sb.WriteString(out)
+		}
+	}
+
+	return sb.String()
+}
+
+// runSetupScripts runs all .sh scripts in setupDir alphabetically and returns their combined stdout.
+// Failed or timed-out scripts are silently skipped.
+func runSetupScripts(setupDir string) string {
+	if setupDir == "" {
+		return ""
+	}
+	entries, err := os.ReadDir(setupDir)
+	if err != nil {
+		return ""
+	}
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sh") {
+			names = append(names, entry.Name())
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+
+	var sb strings.Builder
+	for _, name := range names {
+		path := filepath.Join(setupDir, name)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "bash", path).Output()
+		cancel()
+		if err != nil || len(out) == 0 {
+			continue
+		}
+		sb.Write(out)
+		if out[len(out)-1] != '\n' {
+			sb.WriteByte('\n')
+		}
+	}
 	return sb.String()
 }
 
