@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/YujiSuzuki/sandbox-mcp/internal/config"
 	"github.com/YujiSuzuki/sandbox-mcp/internal/jsonrpc"
@@ -21,6 +22,22 @@ import (
 //
 // go build -ldflags "-X main.version=1.0.0"
 var version = "dev"
+
+// init resolves the version from module build info when not set via ldflags.
+// This ensures `go install` users see the correct version (e.g. "v0.2.0")
+// instead of the default "dev".
+//
+// ldflags で設定されていない場合、モジュールのビルド情報からバージョンを解決します。
+// これにより `go install` を使うユーザーにもデフォルトの "dev" ではなく
+// 正しいバージョン（例: "v0.2.0"）が表示されます。
+func init() {
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok &&
+			info.Main.Version != "" && info.Main.Version != "(devel)" {
+			version = info.Main.Version
+		}
+	}
+}
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
