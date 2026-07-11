@@ -16,15 +16,9 @@ type ScriptInfo struct {
 	Environment string `json:"environment"` // "container", "any"
 	Category    string `json:"category"`    // "utility", "test"
 	Advertise   bool   `json:"advertise,omitempty"`
+	Hidden      bool   `json:"hidden,omitempty"`
 	Usage       string `json:"usage,omitempty"`
 	Options     string `json:"options,omitempty"`
-}
-
-// Scripts that must run in container (from help.sh).
-var containerOnly = map[string]bool{
-	"sync-secrets.sh":         true,
-	"validate-secrets.sh":     true,
-	"sync-compose-secrets.sh": true,
 }
 
 // ListScripts returns metadata for all scripts in the directory.
@@ -37,16 +31,32 @@ func ListScripts(dir string) ([]ScriptInfo, error) {
 	var scripts []ScriptInfo
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasSuffix(name, ".sh") {
+		if e.IsDir() {
 			continue
 		}
-		// Skip libraries (underscore prefix) and help.sh
-		if strings.HasPrefix(name, "_") || name == "help.sh" {
+		// Skip libraries (underscore prefix); there is no hardcoded filename
+		// exclusion beyond this — scripts opt out of listing via @hidden: true.
+		if strings.HasPrefix(name, "_") {
+			continue
+		}
+		// No extension check: any executable file is a script, regardless of
+		// language. This relies on the file's own shebang (executor.RunScript
+		// invokes it directly rather than via bash) and works for any
+		// language whose comments use "#" (Python, Ruby, Perl, shell, ...).
+		// Use os.Stat (not e.Info(), which is Lstat-based) so a symlink's
+		// executable bit is resolved from its target, matching executor.RunScript
+		// — otherwise a symlink to a non-executable file would be listed here
+		// but fail to run there.
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err != nil || fi.Mode()&0111 == 0 {
 			continue
 		}
 
 		info, err := parseHeader(filepath.Join(dir, name))
 		if err != nil {
+			continue
+		}
+		if info.Hidden {
 			continue
 		}
 		scripts = append(scripts, info)
@@ -233,6 +243,22 @@ func parseMetadata(info *ScriptInfo, line string) {
 		val := strings.TrimSpace(strings.TrimPrefix(line, "@advertise:"))
 		info.Advertise = val == "true"
 	}
+	if strings.HasPrefix(line, "@hidden:") {
+		val := strings.TrimSpace(strings.TrimPrefix(line, "@hidden:"))
+		info.Hidden = val == "true"
+	}
+	if strings.HasPrefix(line, "@env:") {
+		val := strings.TrimSpace(strings.TrimPrefix(line, "@env:"))
+		if val == "container" || val == "any" {
+			info.Environment = val
+		}
+	}
+	if strings.HasPrefix(line, "@category:") {
+		val := strings.TrimSpace(strings.TrimPrefix(line, "@category:"))
+		if val == "test" || val == "utility" {
+			info.Category = val
+		}
+	}
 }
 
 func stripComment(line string) string {
@@ -242,10 +268,12 @@ func stripComment(line string) string {
 	return strings.TrimSpace(line)
 }
 
+// classifyEnvironment returns the default Environment classification for a
+// script name. There is no hardcoded filename list — every script defaults
+// to "any" and opts into "container" explicitly via the @env: header tag
+// (see parseMetadata), so container-only status travels with the script's
+// own header instead of living in sandbox-mcp's source.
 func classifyEnvironment(name string) string {
-	if containerOnly[name] {
-		return "container"
-	}
 	return "any"
 }
 

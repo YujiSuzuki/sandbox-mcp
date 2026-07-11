@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,15 +41,25 @@ func (r *Result) String() string {
 	return b.String()
 }
 
-// RunScript executes a shell script within the scripts directory.
+// RunScript executes a script within the scripts directory. The script is
+// invoked directly (not via bash), so its own shebang line determines the
+// interpreter — there is no extension requirement, only that the file exists
+// and is executable.
 func RunScript(dir, name string, args []string) (*Result, error) {
 	if err := validateName(name); err != nil {
 		return nil, err
 	}
 
 	path := filepath.Join(dir, name)
-	if !strings.HasSuffix(name, ".sh") {
-		return nil, fmt.Errorf("not a shell script: %s", name)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("script not found: %s", name)
+	}
+	if fi.IsDir() {
+		return nil, fmt.Errorf("not a script: %s", name)
+	}
+	if fi.Mode()&0111 == 0 {
+		return nil, fmt.Errorf("script is not executable: %s", name)
 	}
 
 	return run(path, args)

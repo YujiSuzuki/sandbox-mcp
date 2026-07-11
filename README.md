@@ -167,7 +167,7 @@ Sample scripts and tools can be found in [AI Sandbox](https://github.com/YujiSuz
 
 ### Scripts (`.sandbox/scripts/`)
 
-Shell scripts with a header comment for description:
+Executable scripts with a header comment for description. There is no language/extension requirement — `run_script` invokes the file directly (not via `bash`), so any language works as long as the file is executable (`chmod +x`) and has a shebang line (e.g. `#!/usr/bin/env python3`). The header parser looks for `#`-style comments, so this works out of the box for Python, Ruby, Perl, and shell; other comment syntaxes (e.g. `//`) will run fine but won't get a parsed description.
 
 ```bash
 #!/bin/bash
@@ -187,23 +187,32 @@ Shell scripts with a header comment for description:
 - **Line 1**: Shebang
 - **Line 2**: Filename (skipped by the parser)
 - **Line 3**: One-line description (shown in `list_scripts` and `<system-reminder>`)
-- **Line 4**: `@advertise: true` and other metadata. The description shown in `<system-reminder>` is limited to the line(s) above.
+- **Line 4**: `@advertise: true`. The description shown in `<system-reminder>` is limited to line 3 (lines below `@advertise` are not included, even if present).
 - **`@advertise: true`**: The script is listed in `<system-reminder>` at the start of every conversation — the AI knows about it without needing to call `list_scripts` first
+- **`@env: container`**: Marks the script as container-only (see **Env** below). Default is `any`; `@env: any` is also accepted (a no-op, but useful to state explicitly)
+- **`@category: test` / `@category: utility`**: Overrides the filename-based `Category` classification below — useful when a script's purpose doesn't match its name
+- **`@hidden: true`**: Excludes the script from `list_scripts` (e.g. a human-facing CLI entry point that isn't meant to be run by the AI). Default is `false`
 - **`# ---`**: Parsing stops here; content below is for human readers only
 - **`Usage:` (or `使用法:` in Japanese)**: If present before `# ---`, shown by `get_script_info`
 
-**Category** is auto-detected from the filename:
+> **Note:** `@advertise`, `@env`, `@category`, and `@hidden` are currently the only supported `@key:` metadata tags — any other `@key:` line just stops description collection without being parsed. Candidate additions, not yet implemented:
+> - **`@timeout: 60`** — allow individual scripts to opt into a longer timeout than the fixed 30s default (see [MCP Tools](#mcp-tools))
+> - **`@requires: gh, jq`** — declare external command dependencies, so the AI can check they're available (or explain why a script can't run) before executing it, instead of failing partway through
+
+**Category** is auto-detected from the filename, and can be overridden per-script with `@category:`:
 - Starts with `test-` → `test`
 - All others → `utility`
 
-**Env** (execution environment) is determined internally for known system scripts:
+**Env** (execution environment) defaults to `any` for every script. There is no built-in filename list — mark a script container-only by adding `@env: container` to its own header:
 
-| Env | Scripts |
+| Env | Meaning |
 |-----|---------|
-| `container` — container-only | `sync-secrets.sh`, `validate-secrets.sh`, `sync-compose-secrets.sh` |
-| `any` — runs anywhere | All others |
+| `container` — container-only | Set via `@env: container` in the script's own header |
+| `any` — runs anywhere | Default; no tag needed |
 
-> **Tip:** Scripts with a `_` prefix (e.g. `_lib.sh`) are treated as libraries and are excluded from `list_scripts`. `help.sh` is also excluded.
+> **Note:** `Environment` is informational only — it's surfaced to the AI via `list_scripts`/`get_script_info` as a hint, but `run_script` does not check it or block execution based on it.
+
+> **Tip:** Scripts with a `_` prefix (e.g. `_lib.sh`) are treated as libraries and are excluded from `list_scripts`. There is no hardcoded filename exclusion beyond this — a script you want left out of `list_scripts` excludes itself via `@hidden: true` in its own header.
 
 ### Tools (`.sandbox/tools/`)
 

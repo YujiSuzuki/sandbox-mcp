@@ -30,10 +30,60 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
-func TestRunScriptRejectsNonSh(t *testing.T) {
-	_, err := RunScript("/tmp", "notashell.py", nil)
+func TestRunScriptRejectsNonexistent(t *testing.T) {
+	_, err := RunScript("/tmp", "does-not-exist-xyz.sh", nil)
 	if err == nil {
-		t.Error("Expected error for non-.sh file")
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestRunScriptRejectsNonExecutable(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "not-executable.sh"), []byte("#!/bin/bash\necho hi\n"), 0644)
+
+	_, err := RunScript(dir, "not-executable.sh", nil)
+	if err == nil {
+		t.Error("Expected error for non-executable file")
+	}
+}
+
+// TestRunScriptRejectsDirectory verifies a subdirectory of the scripts dir is
+// rejected with the same clean "not executable" error as any other
+// non-script path, rather than falling through to exec.CommandContext and
+// surfacing a raw OS-level error (e.g. "permission denied"). Directories
+// typically carry the 0111 execute-traversal bits, so without an explicit
+// IsDir check they'd pass the executable-bit check that replaced the old
+// .sh-suffix check.
+func TestRunScriptRejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	_, err := RunScript(dir, "subdir", nil)
+	if err == nil {
+		t.Fatal("Expected error for directory, got nil")
+	}
+	if !strings.Contains(err.Error(), "not a script") {
+		t.Errorf("Error = %q, want it to contain %q", err.Error(), "not a script")
+	}
+}
+
+// TestRunScriptAllowsNonShIfExecutable verifies a script's language is not
+// gated by its extension — only whether it's executable. Uses a shebang-only
+// "python-like" executable to avoid a hard dependency on python3 being
+// installed in the test environment.
+func TestRunScriptAllowsNonShIfExecutable(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "greet.py")
+	os.WriteFile(script, []byte("#!/bin/sh\necho \"hello $1\"\n"), 0755)
+
+	result, err := RunScript(dir, "greet.py", []string{"world"})
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !strings.Contains(result.Stdout, "hello world") {
+		t.Errorf("Stdout = %q, want to contain %q", result.Stdout, "hello world")
 	}
 }
 

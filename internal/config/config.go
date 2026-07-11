@@ -15,8 +15,18 @@ import (
 
 // Config holds SandboxMCP configuration.
 type Config struct {
-	ScriptsDir  string
-	ToolsDir    string
+	ScriptsDir string
+	ToolsDir   string
+
+	// UpdateCheck is parsed from config (update_check, default true) but not
+	// yet consumed anywhere. Planned: on startup, check the latest sandbox-mcp
+	// GitHub release and surface it via buildInstructions() when a newer
+	// version exists, throttled by a state file (e.g. ~/.config/sandbox-mcp/
+	// update-check-state, one check per ~24h) so it doesn't hit the GitHub API
+	// on every MCP session start. Setting this to false should skip the check
+	// entirely. This targets users running sandbox-mcp standalone (not via the
+	// ai-sandbox template, which already covers this via
+	// .sandbox/scripts/check-sandbox-mcp-updates.sh).
 	UpdateCheck bool
 }
 

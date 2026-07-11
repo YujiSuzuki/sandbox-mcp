@@ -193,9 +193,10 @@ func TestParseHeaderEmptyFile(t *testing.T) {
 	}
 }
 
-func TestListScriptsSkipsNonSh(t *testing.T) {
+func TestListScriptsSkipsNonExecutable(t *testing.T) {
 	dir := t.TempDir()
-	// Create a .sh file and a non-.sh file
+	// Create an executable script and a non-executable file. There is no
+	// extension check anymore — executability is what matters.
 	os.WriteFile(filepath.Join(dir, "good.sh"), []byte("#!/bin/bash\n# good.sh\n# English\n# Japanese\n"), 0755)
 	os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("not a script"), 0644)
 
@@ -208,15 +209,52 @@ func TestListScriptsSkipsNonSh(t *testing.T) {
 	}
 	for _, s := range scripts {
 		if s.Name == "readme.txt" {
-			t.Error("Non-.sh file should be excluded")
+			t.Error("Non-executable file should be excluded")
 		}
 	}
 }
 
-func TestListScriptsSkipsUnderscoreAndHelp(t *testing.T) {
+// TestListScriptsIncludesExecutableNonSh verifies that any executable script
+// is picked up regardless of its extension — not just .sh. The header parser
+// uses "#" comments, which Python/Ruby/Perl also use, so this works for free.
+func TestListScriptsIncludesExecutableNonSh(t *testing.T) {
+	dir := t.TempDir()
+	content := "#!/usr/bin/env python3\n# tool.py\n# A Python-based script\n"
+	os.WriteFile(filepath.Join(dir, "tool.py"), []byte(content), 0755)
+
+	scripts, err := ListScripts(dir)
+	if err != nil {
+		t.Fatalf("ListScripts: %v", err)
+	}
+	if len(scripts) != 1 {
+		t.Fatalf("Expected 1 script, got %d", len(scripts))
+	}
+	if scripts[0].Name != "tool.py" {
+		t.Errorf("Name = %q, want %q", scripts[0].Name, "tool.py")
+	}
+	if scripts[0].Description != "A Python-based script" {
+		t.Errorf("Description = %q, want %q", scripts[0].Description, "A Python-based script")
+	}
+}
+
+// TestListScriptsExcludesNonExecutableSh verifies a .sh file without the
+// executable bit set is excluded, even though it has the "right" extension.
+func TestListScriptsExcludesNonExecutableSh(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "not-executable.sh"), []byte("#!/bin/bash\n# not-executable.sh\n# Forgot chmod +x\n"), 0644)
+
+	scripts, err := ListScripts(dir)
+	if err != nil {
+		t.Fatalf("ListScripts: %v", err)
+	}
+	if len(scripts) != 0 {
+		t.Errorf("Expected 0 scripts, got %d: %+v", len(scripts), scripts)
+	}
+}
+
+func TestListScriptsSkipsUnderscorePrefix(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "_common.sh"), []byte("#!/bin/bash\n# lib\n# EN\n# JA\n"), 0755)
-	os.WriteFile(filepath.Join(dir, "help.sh"), []byte("#!/bin/bash\n# help\n# EN\n# JA\n"), 0755)
 	os.WriteFile(filepath.Join(dir, "valid.sh"), []byte("#!/bin/bash\n# valid.sh\n# EN\n# JA\n"), 0755)
 
 	scripts, err := ListScripts(dir)
@@ -227,9 +265,93 @@ func TestListScriptsSkipsUnderscoreAndHelp(t *testing.T) {
 		t.Errorf("Expected 1 script (valid.sh), got %d", len(scripts))
 	}
 	for _, s := range scripts {
-		if s.Name == "_common.sh" || s.Name == "help.sh" {
+		if s.Name == "_common.sh" {
 			t.Errorf("Script %s should be excluded", s.Name)
 		}
+	}
+}
+
+// TestListScriptsSkipsHiddenTag verifies that @hidden: true excludes a script
+// from ListScripts, regardless of its filename. There is no hardcoded filename
+// exclusion (e.g. "help.sh") anymore — a script opts out of listing via its
+// own header, the same way @env/@category opt into their own classification.
+func TestListScriptsSkipsHiddenTag(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "help.sh"), []byte("#!/bin/bash\n# help.sh\n# Human-facing CLI entry point\n# @hidden: true\n"), 0755)
+	os.WriteFile(filepath.Join(dir, "valid.sh"), []byte("#!/bin/bash\n# valid.sh\n# EN\n# JA\n"), 0755)
+
+	scripts, err := ListScripts(dir)
+	if err != nil {
+		t.Fatalf("ListScripts: %v", err)
+	}
+	if len(scripts) != 1 {
+		t.Errorf("Expected 1 script (valid.sh), got %d", len(scripts))
+	}
+	for _, s := range scripts {
+		if s.Name == "help.sh" {
+			t.Errorf("Script %s should be excluded via @hidden: true", s.Name)
+		}
+	}
+}
+
+// TestListScriptsPlainHelpShNotAutoExcluded verifies a script literally named
+// help.sh is NOT excluded unless it opts in via @hidden: true — there is no
+// hardcoded name check.
+func TestListScriptsPlainHelpShNotAutoExcluded(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "help.sh"), []byte("#!/bin/bash\n# help.sh\n# A script that happens to be named help.sh\n"), 0755)
+
+	scripts, err := ListScripts(dir)
+	if err != nil {
+		t.Fatalf("ListScripts: %v", err)
+	}
+	found := false
+	for _, s := range scripts {
+		if s.Name == "help.sh" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Expected help.sh to be listed since it has no @hidden: true tag")
+	}
+}
+
+// TestParseHeaderHiddenFlag verifies @hidden: true sets Hidden = true.
+func TestParseHeaderHiddenFlag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "help.sh")
+	content := `#!/bin/bash
+# help.sh
+# Human-facing CLI entry point
+# @hidden: true
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if !info.Hidden {
+		t.Error("Expected Hidden = true for @hidden: true")
+	}
+}
+
+// TestParseHeaderNoHiddenFlag verifies Hidden defaults to false.
+func TestParseHeaderNoHiddenFlag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "normal.sh")
+	content := `#!/bin/bash
+# normal.sh
+# A normal script without hidden flag
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Hidden {
+		t.Error("Expected Hidden = false by default")
 	}
 }
 
@@ -523,16 +645,226 @@ func TestParseHeaderNoAdvertiseFlag(t *testing.T) {
 	}
 }
 
-// TestClassifyEnvironment verifies environment classification for known script names.
-// These are pure string-to-string mappings with no filesystem dependency.
+// TestParseHeaderEnvTag verifies that @env: container marks a script container-only.
+// There is no hardcoded filename list anymore — @env: is the only way to mark a
+// script container-only.
+func TestParseHeaderEnvTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "custom-secret-tool.sh")
+	content := `#!/bin/bash
+# custom-secret-tool.sh
+# Reads a container-local secret
+# @env: container
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Environment != "container" {
+		t.Errorf("Environment = %q, want %q", info.Environment, "container")
+	}
+}
+
+// TestParseHeaderEnvTagAnyExplicit verifies @env: any can be set explicitly
+// (a no-op relative to the "any" default, but the value should still be honored).
+func TestParseHeaderEnvTagAnyExplicit(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "sync-secrets.sh")
+	content := `#!/bin/bash
+# sync-secrets.sh
+# Overridden for this test
+# @env: any
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Environment != "any" {
+		t.Errorf("Environment = %q, want %q", info.Environment, "any")
+	}
+}
+
+// TestParseHeaderEnvTagInvalidValueIgnored verifies an unrecognized @env value
+// falls back to the filename-based default instead of being applied verbatim.
+func TestParseHeaderEnvTagInvalidValueIgnored(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "custom-tool.sh")
+	content := `#!/bin/bash
+# custom-tool.sh
+# Has a bogus env value
+# @env: bogus
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Environment != "any" {
+		t.Errorf("Environment = %q, want %q (invalid @env value should be ignored)", info.Environment, "any")
+	}
+}
+
+// TestParseHeaderNoEnvTag verifies Environment still falls back to the
+// filename-based default when no @env tag is present.
+func TestParseHeaderNoEnvTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plain-tool.sh")
+	content := `#!/bin/bash
+# plain-tool.sh
+# No env tag here
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Environment != "any" {
+		t.Errorf("Environment = %q, want %q", info.Environment, "any")
+	}
+}
+
+// TestGetDetailedInfoEnvTag verifies @env: container is also honored by
+// parseDetailedHeader (used by GetDetailedInfo).
+func TestGetDetailedInfoEnvTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "custom-secret-tool.sh")
+	content := `#!/bin/bash
+# custom-secret-tool.sh
+# Reads a container-local secret
+# @env: container
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := GetDetailedInfo(dir, "custom-secret-tool.sh")
+	if err != nil {
+		t.Fatalf("GetDetailedInfo: %v", err)
+	}
+	if info.Environment != "container" {
+		t.Errorf("Environment = %q, want %q", info.Environment, "container")
+	}
+}
+
+// TestParseHeaderCategoryTag verifies that @category: test overrides the
+// filename-based auto-detection.
+func TestParseHeaderCategoryTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "smoke-check.sh")
+	content := `#!/bin/bash
+# smoke-check.sh
+# A test script that doesn't follow the test- naming convention
+# @category: test
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Category != "test" {
+		t.Errorf("Category = %q, want %q", info.Category, "test")
+	}
+}
+
+// TestParseHeaderCategoryTagOverridesTestPrefix verifies @category: utility can
+// override the filename-based "test" classification for a test-* named script.
+func TestParseHeaderCategoryTagOverridesTestPrefix(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "test-fixture-helper.sh")
+	content := `#!/bin/bash
+# test-fixture-helper.sh
+# Not actually a test, just named test-* for historical reasons
+# @category: utility
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Category != "utility" {
+		t.Errorf("Category = %q, want %q", info.Category, "utility")
+	}
+}
+
+// TestParseHeaderCategoryTagInvalidValueIgnored verifies an unrecognized
+// @category value falls back to the filename-based default.
+func TestParseHeaderCategoryTagInvalidValueIgnored(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "custom-tool.sh")
+	content := `#!/bin/bash
+# custom-tool.sh
+# Has a bogus category value
+# @category: bogus
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Category != "utility" {
+		t.Errorf("Category = %q, want %q (invalid @category value should be ignored)", info.Category, "utility")
+	}
+}
+
+// TestParseHeaderNoCategoryTag verifies Category still falls back to the
+// filename-based default when no @category tag is present.
+func TestParseHeaderNoCategoryTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "test-plain.sh")
+	content := `#!/bin/bash
+# test-plain.sh
+# No category tag here
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := parseHeader(script)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if info.Category != "test" {
+		t.Errorf("Category = %q, want %q", info.Category, "test")
+	}
+}
+
+// TestGetDetailedInfoCategoryTag verifies @category: test is also honored by
+// parseDetailedHeader (used by GetDetailedInfo).
+func TestGetDetailedInfoCategoryTag(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "smoke-check.sh")
+	content := `#!/bin/bash
+# smoke-check.sh
+# A test script that doesn't follow the test- naming convention
+# @category: test
+`
+	os.WriteFile(script, []byte(content), 0755)
+
+	info, err := GetDetailedInfo(dir, "smoke-check.sh")
+	if err != nil {
+		t.Fatalf("GetDetailedInfo: %v", err)
+	}
+	if info.Category != "test" {
+		t.Errorf("Category = %q, want %q", info.Category, "test")
+	}
+}
+
+// TestClassifyEnvironment verifies environment classification defaults to "any"
+// for every filename. There is no hardcoded filename list — scripts opt into
+// "container" explicitly via the @env: header tag (see TestParseHeaderEnvTag).
 func TestClassifyEnvironment(t *testing.T) {
 	tests := []struct {
 		name string
 		want string
 	}{
-		{"validate-secrets.sh", "container"},
-		{"sync-secrets.sh", "container"},
-		{"sync-compose-secrets.sh", "container"},
+		{"validate-secrets.sh", "any"},
+		{"sync-secrets.sh", "any"},
+		{"sync-compose-secrets.sh", "any"},
 		{"anything-else.sh", "any"},
 		{"commit-msg.sh", "any"},
 	}
