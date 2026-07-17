@@ -39,6 +39,16 @@ AI Sandbox（コンテナ）
 go install github.com/YujiSuzuki/sandbox-mcp@latest
 ```
 
+または、ビルド済みバイナリをダウンロード（Go不要。SandboxMCPはLinuxコンテナ内で動作する前提のため、Linux向けバイナリのみ提供しています）:
+
+```bash
+curl -L https://github.com/YujiSuzuki/sandbox-mcp/releases/latest/download/sandbox-mcp_linux_amd64 -o sandbox-mcp
+chmod +x sandbox-mcp
+sudo mv sandbox-mcp /usr/local/bin/
+```
+
+> ARMホスト向けに `sandbox-mcp_linux_arm64` も提供しています。これは AI Sandbox の `startup.sh` がコンテナ内にGoがない場合に自動でダウンロードするバイナリと同じものです。
+
 ソースからビルドする場合:
 
 ```bash
@@ -239,6 +249,30 @@ package main
 - **`Examples:`**: `// ---` より前にあれば `get_tool_info` で表示
 - **`// ---`**: ここで解析停止。以降は人間向けの内容
 - `package` 宣言に達した時点でも解析を停止します
+
+## トラブルシューティング
+
+### 「sandbox-mcp: command not found」と表示される
+
+- `go install` でインストールした場合: `$(go env GOPATH)/bin`（通常は `~/go/bin`）が `PATH` に含まれているか確認してください。
+- ビルド済みバイナリでインストールした場合: 配置先ディレクトリ（例: `/usr/local/bin`）が `PATH` に含まれているか確認してください。
+
+### Claude Code / Gemini CLI に MCP ツールが表示されない
+
+1. 登録状況を確認: `claude mcp list`（または `gemini mcp list`）に `sandbox-mcp` が含まれているか確認
+2. 再接続: Claude Code で `/mcp` → 「Reconnect」を実行
+3. 登録されていなければ再登録: `claude mcp add sandbox-mcp sandbox-mcp`（[使い方](#使い方)を参照）
+
+### スクリプトが `list_scripts` に表示されない
+
+- `_` で始まるファイル（例: `_lib.sh`）はライブラリとして扱われ、仕様上除外されます
+- ヘッダーに `@hidden: true` が指定されていないか確認してください
+- ファイルに実行権限があるか確認してください（`chmod +x`）。実行権限のないファイルはスキップされます
+- `category` 引数でフィルタしている場合、ファイル名（または `@category:` による上書き）が条件と一致しているか確認してください（`test-` プレフィックス → `test`、それ以外 → `utility`）
+
+### ツールが `list_tools` に表示されない
+
+- `--tools-dir`（デフォルト `.sandbox/tools/`）直下の `.go` ファイルで、`package main` 宣言があるか確認してください
 
 ## 開発
 

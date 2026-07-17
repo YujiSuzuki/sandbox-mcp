@@ -39,6 +39,16 @@ Host OS: HostMCP server → API container, DB container, host tools, …
 go install github.com/YujiSuzuki/sandbox-mcp@latest
 ```
 
+Or download a prebuilt binary (no Go required — SandboxMCP is designed to run inside a Linux container, so only Linux binaries are published):
+
+```bash
+curl -L https://github.com/YujiSuzuki/sandbox-mcp/releases/latest/download/sandbox-mcp_linux_amd64 -o sandbox-mcp
+chmod +x sandbox-mcp
+sudo mv sandbox-mcp /usr/local/bin/
+```
+
+> `sandbox-mcp_linux_arm64` is also available for ARM hosts. This is the same binary that AI Sandbox's `startup.sh` downloads automatically when Go isn't present in the container.
+
 Or build from source:
 
 ```bash
@@ -237,6 +247,30 @@ package main
 - **`Examples:`**: If present before `// ---`, shown by `get_tool_info`
 - **`// ---`**: Parsing stops here; content below is for human readers only
 - Parsing also stops at the `package` declaration
+
+## Troubleshooting
+
+### "sandbox-mcp: command not found"
+
+- Installed via `go install`? Ensure `$(go env GOPATH)/bin` (usually `~/go/bin`) is on your `PATH`.
+- Installed via the prebuilt binary? Ensure the directory you moved it to (e.g. `/usr/local/bin`) is on your `PATH`.
+
+### MCP tools not showing up in Claude Code / Gemini CLI
+
+1. Verify registration: `claude mcp list` (or `gemini mcp list`) should include `sandbox-mcp`.
+2. Reconnect: in Claude Code, run `/mcp` → "Reconnect".
+3. Re-register if missing: `claude mcp add sandbox-mcp sandbox-mcp` (see [Usage](#usage)).
+
+### A script doesn't appear in `list_scripts`
+
+- Files starting with `_` (e.g. `_lib.sh`) are treated as libraries and excluded by design.
+- Check the header doesn't have `@hidden: true`.
+- Confirm the file is executable (`chmod +x`) — non-executable files are skipped.
+- If filtering with the `category` argument, confirm the filename (or `@category:` override) matches: `test-` prefix → `test`, everything else → `utility`.
+
+### A tool doesn't appear in `list_tools`
+
+- Confirm it's a `.go` file directly under `--tools-dir` (default `.sandbox/tools/`) with a `package main` declaration.
 
 ## Development
 
