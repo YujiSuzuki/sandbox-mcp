@@ -152,13 +152,13 @@ Place shell scripts in `.sandbox/sandbox-mcp-setup/` to inject custom context at
 
 ```
 .sandbox/sandbox-mcp-setup/
-├── find-git-repos.sh   # e.g. show repos with current branch
-└── check-env.sh        # e.g. verify required environment variables
+├── 10-find-git-repos.sh   # e.g. show repos with current branch
+└── 20-check-env.sh        # e.g. verify required environment variables
 ```
 
-Scripts are executed with `bash` and have a 5-second timeout. Failed or timed-out scripts are silently skipped.
+Scripts are executed with `bash` and have a 5-second timeout. Failed or timed-out scripts are silently skipped. A numeric prefix (`10-`, `20-`, ...) is a common convention for controlling execution order, since scripts run in alphabetical order.
 
-Example (`.sandbox/sandbox-mcp-setup/find-git-repos.sh`):
+Example (`.sandbox/sandbox-mcp-setup/10-find-git-repos.sh`):
 ```bash
 #!/bin/bash
 WORKSPACE="${WORKSPACE_DIR:-/workspace}"
@@ -170,6 +170,8 @@ find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
       echo "- $rel (branch: $branch)"
     done
 ```
+
+> **Real-world example:** see [AI Sandbox's `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) and [its architecture docs](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.md#startup-context-injection).
 
 ## Adding Scripts and Tools
 

@@ -148,17 +148,17 @@ Nested git repositories (independent repos — run git commands from within each
 
 ### セットアップスクリプト（`.sandbox/sandbox-mcp-setup/`）
 
-`.sandbox/sandbox-mcp-setup/` にシェルスクリプトを置くと、起動時にカスタムコンテキストを注入できます。スクリプトはアルファベット順に実行され、stdout が instructions に追記されます。
+`.sandbox/sandbox-mcp-setup/` にシェルスクリプトを置くと、起動時にカスタムコンテキストを注入できます。スクリプトはアルファベット順に実行され、stdout(スクリプトの出力内容) が instructions に追記されます。
 
 ```
 .sandbox/sandbox-mcp-setup/
-├── find-git-repos.sh   # 例: 現在のブランチ付きでリポジトリ一覧を表示
-└── check-env.sh        # 例: 必要な環境変数の確認
+├── 10-find-git-repos.sh   # 例: 現在のブランチ付きでリポジトリ一覧を表示
+└── 20-check-env.sh        # 例: 必要な環境変数の確認
 ```
 
-スクリプトは `bash` で実行され、タイムアウトは 5 秒です。失敗・タイムアウトしたスクリプトはサイレントスキップされます。
+スクリプトは `bash` で実行され、タイムアウトは 5 秒です。失敗・タイムアウトしたスクリプトはサイレントスキップされます。スクリプトはアルファベット順に実行されるため、数字プレフィックス（`10-`, `20-`, ...）で実行順を制御するのが一般的な慣習です。
 
-スクリプト例（`.sandbox/sandbox-mcp-setup/find-git-repos.sh`）:
+スクリプト例（`.sandbox/sandbox-mcp-setup/10-find-git-repos.sh`）:
 ```bash
 #!/bin/bash
 WORKSPACE="${WORKSPACE_DIR:-/workspace}"
@@ -170,6 +170,8 @@ find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
       echo "- $rel (branch: $branch)"
     done
 ```
+
+> **実際の運用例:** [AI Sandbox の `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) と [そのアーキテクチャドキュメント](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.ja.md#起動時コンテキスト注入) を参照してください。
 
 ## スクリプトとツールの追加
 
