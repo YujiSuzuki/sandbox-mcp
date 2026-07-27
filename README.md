@@ -2,11 +2,12 @@
 
 [日本語版はこちら](README.ja.md)
 
-A **lightweight MCP (Model Context Protocol) server that runs inside your container**. It communicates with AI agents like Claude Code via stdio and auto-discovers scripts and tools placed in `.sandbox/scripts/` or `.sandbox/tools/`, making them available for AI to run autonomously.
+A **lightweight MCP (Model Context Protocol) server that runs inside your container**. It communicates with AI agents like Claude Code via stdio, auto-discovers scripts and tools placed in `.sandbox/scripts/` or `.sandbox/tools/` for AI to run autonomously, and automatically pushes workspace context (git status, environment info, etc.) to the AI at startup.
 
 - Drop scripts you want AI to run — AI discovers them automatically
 - No need to tell AI the script path or usage every time
 - AI reads the purpose and usage directly from header comments
+- Also pushes custom context (git status, env info, etc.) to the AI automatically at startup — see [Startup Context](#startup-context)
 
 ## Overview
 
@@ -78,7 +79,7 @@ gemini mcp add sandbox-mcp sandbox-mcp
 With custom paths:
 
 ```bash
-claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools-dir /path/to/tools
+claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools-dir /path/to/tools --setup-dir /path/to/setup
 ```
 
 ### CLI Flags
@@ -87,6 +88,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 |------|---------|-------------|
 | `--scripts-dir` | `.sandbox/scripts` | Path to scripts directory |
 | `--tools-dir` | `.sandbox/tools` | Path to tools directory |
+| `--setup-dir` | `.sandbox/sandbox-mcp-setup` | Path to setup-scripts directory |
 | `--config` | (auto-detect) | Path to config file |
 | `--workspace` | (CWD) | Workspace root for resolving relative paths |
 
@@ -100,10 +102,10 @@ sandbox-mcp version
 
 Configuration is resolved with the following priority (highest first):
 
-1. CLI flags (`--scripts-dir`, `--tools-dir`)
+1. CLI flags (`--scripts-dir`, `--tools-dir`, `--setup-dir`)
 2. Config file
-3. Environment variables (`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`)
-4. Defaults (`.sandbox/scripts`, `.sandbox/tools`)
+3. Environment variables (`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`)
+4. Defaults (`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`)
 
 #### Config File
 
@@ -115,7 +117,10 @@ SandboxMCP looks for a config file in these locations:
 ```yaml
 scripts_dir: ".sandbox/scripts"
 tools_dir: ".sandbox/tools"
+setup_dir: ".sandbox/sandbox-mcp-setup"
 ```
+
+> **Tip:** To disable the [setup-scripts feature](#setup-scripts-sandboxsandbox-mcp-setup) entirely, set `setup_dir: ""` (it does not fall back to the workspace root).
 
 ## MCP Tools
 
@@ -136,6 +141,8 @@ When you ask the AI to run a script or tool, it works behind the scenes in this 
 
 At startup, SandboxMCP automatically builds context for the AI and includes it in the MCP `instructions` (shown as `<system-reminder>` in Claude Code). This helps the AI understand your workspace without manual explanation.
 
+This matters even for AI agents that already have full shell access. Because `instructions` is delivered automatically at MCP connection time, the AI receives this context without having to decide to go look for it — no separate discovery step, no risk of it being skipped. And because it's a standard MCP protocol field rather than an editor-specific hook, the same setup scripts work unmodified for any MCP client that connects to SandboxMCP (e.g. Gemini CLI), instead of being locked to one editor's hook configuration.
+
 ### Nested Git Repository Detection
 
 SandboxMCP scans the workspace for independent git repositories (up to 3 levels deep) and lists them in the instructions. This prevents the AI from accidentally running git commands in the wrong directory.
@@ -148,7 +155,7 @@ Nested git repositories (independent repos — run git commands from within each
 
 ### Setup Scripts (`.sandbox/sandbox-mcp-setup/`)
 
-Place shell scripts in `.sandbox/sandbox-mcp-setup/` to inject custom context at startup. Scripts run in alphabetical order; their stdout is appended to the instructions.
+Place shell scripts in `.sandbox/sandbox-mcp-setup/` (or wherever `--setup-dir` / `SANDBOX_SETUP_DIR` / `setup_dir` points — see [Configuration](#configuration)) to inject custom context at startup. Scripts run in alphabetical order; their stdout is appended to the instructions.
 
 ```
 .sandbox/sandbox-mcp-setup/

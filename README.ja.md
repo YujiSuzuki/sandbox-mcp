@@ -2,11 +2,12 @@
 
 [English README is here](README.md)
 
-**コンテナ内で動作する軽量 MCP（Model Context Protocol）サーバー**です。Claude Code などの AI エージェントと stdio で通信し、`.sandbox/scripts/` や `.sandbox/tools/` に置いたスクリプト・ツールを自動検出して、AI が自律的に実行できるようにします。
+**コンテナ内で動作する軽量 MCP（Model Context Protocol）サーバー**です。Claude Code などの AI エージェントと stdio で通信し、`.sandbox/scripts/` や `.sandbox/tools/` に置いたスクリプト・ツールを自動検出して AI が自律的に実行できるようにするほか、起動時にはワークスペースの文脈（git の状態や環境情報など）も AI へ自動的に届けます。
 
 - AI に実行してほしいスクリプトを置くだけで AI が自動的に発見できる
 - スクリプトのパスや使い方を AI に毎回伝える必要がない
 - ヘッダーコメントから目的・使い方を AI が自分で読める
+- 起動時に git の状態や環境情報などのカスタムコンテキストを AI へ自動的に届けることもできる — [起動時コンテキスト](#起動時コンテキスト) 参照
 
 ## 概要
 
@@ -78,7 +79,7 @@ gemini mcp add sandbox-mcp sandbox-mcp
 カスタムパスを指定する場合:
 
 ```bash
-claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools-dir /path/to/tools
+claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools-dir /path/to/tools --setup-dir /path/to/setup
 ```
 
 ### CLI フラグ
@@ -87,6 +88,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 |--------|-----------|------|
 | `--scripts-dir` | `.sandbox/scripts` | スクリプトディレクトリのパス |
 | `--tools-dir` | `.sandbox/tools` | ツールディレクトリのパス |
+| `--setup-dir` | `.sandbox/sandbox-mcp-setup` | セットアップスクリプトディレクトリのパス |
 | `--config` | （自動検出） | 設定ファイルのパス |
 | `--workspace` | （CWD） | 相対パスを解決する起点となるワークスペースルート |
 
@@ -100,10 +102,10 @@ sandbox-mcp version
 
 設定は以下の優先順位で解決されます（上が最優先）:
 
-1. CLI フラグ（`--scripts-dir`, `--tools-dir`）
+1. CLI フラグ（`--scripts-dir`, `--tools-dir`, `--setup-dir`）
 2. 設定ファイル
-3. 環境変数（`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`）
-4. デフォルト値（`.sandbox/scripts`, `.sandbox/tools`）
+3. 環境変数（`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`）
+4. デフォルト値（`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`）
 
 #### 設定ファイル
 
@@ -115,7 +117,10 @@ sandbox-mcp version
 ```yaml
 scripts_dir: ".sandbox/scripts"
 tools_dir: ".sandbox/tools"
+setup_dir: ".sandbox/sandbox-mcp-setup"
 ```
+
+> **ヒント:** [セットアップスクリプト機能](#セットアップスクリプトsandboxsandbox-mcp-setup)を無効化するには `setup_dir: ""` を指定してください（ワークスペースルートへのフォールバックにはなりません）。
 
 ## MCP ツール
 
@@ -136,6 +141,8 @@ tools_dir: ".sandbox/tools"
 
 起動時に SandboxMCP は AI 向けのコンテキストを自動的に構築し、MCP の `instructions`（Claude Code では `<system-reminder>` として表示）に含めます。AI がワークスペースの構成を把握するために毎回説明する手間がなくなります。
 
+これは、すでにシェルへ直接アクセスできるAIエージェントにとっても意味があります。`instructions` はMCP接続時に自動的に届くため、AIが自ら探しに行く必要がなく、見落とされるリスクもありません。また、エディタ固有のフックではなくMCPプロトコル標準のフィールドであるため、同じセットアップスクリプトが SandboxMCP に接続する任意のMCPクライアント（例: Gemini CLI）でもそのまま動作し、特定エディタのフック設定に縛られません。
+
 ### ネストされた git リポジトリの自動検出
 
 SandboxMCP は起動時にワークスペース内の独立した git リポジトリをスキャン（最大 3 階層）し、instructions に一覧を追加します。AI が誤ったディレクトリで git コマンドを実行するミスを防ぎます。
@@ -148,7 +155,7 @@ Nested git repositories (independent repos — run git commands from within each
 
 ### セットアップスクリプト（`.sandbox/sandbox-mcp-setup/`）
 
-`.sandbox/sandbox-mcp-setup/` にシェルスクリプトを置くと、起動時にカスタムコンテキストを注入できます。スクリプトはアルファベット順に実行され、stdout(スクリプトの出力内容) が instructions に追記されます。
+`.sandbox/sandbox-mcp-setup/`（`--setup-dir` / `SANDBOX_SETUP_DIR` / `setup_dir` で変更可能 — [設定](#設定)参照）にシェルスクリプトを置くと、起動時にカスタムコンテキストを注入できます。スクリプトはアルファベット順に実行され、stdout(スクリプトの出力内容) が instructions に追記されます。
 
 ```
 .sandbox/sandbox-mcp-setup/
