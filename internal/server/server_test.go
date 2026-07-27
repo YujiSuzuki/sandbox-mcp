@@ -764,10 +764,9 @@ func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
 }
 
 // TestInitializeInstructionsIncludesSetupOutput uses a setup dir at a
-// non-default location (not workspaceDir/.sandbox/sandbox-mcp-setup) to prove
-// buildInstructions() uses the explicitly configured s.setupDir rather than
-// deriving it from workspaceDir: if the old hardcoded-join behavior were
-// still in place, this fixture would never be found.
+// non-default location (not workspaceDir/.sandbox/sandbox-mcp-setup) to
+// verify buildInstructions() uses the explicitly configured s.setupDir
+// rather than deriving it from workspaceDir.
 func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
 	workspaceDir := t.TempDir()
 	setupDir := filepath.Join(workspaceDir, "custom-setup-scripts")

@@ -51,7 +51,7 @@ func main() {
 	flagToolsDir := flag.String("tools-dir", "", "Path to tools directory (default: .sandbox/tools)")
 	flagSetupDir := flag.String("setup-dir", "", "Path to setup-scripts directory (default: .sandbox/sandbox-mcp-setup)")
 	flagConfig := flag.String("config", "", "Path to config file (default: auto-detect)")
-	flagWorkspace := flag.String("workspace", "", "Workspace root directory (resolves scripts/tools dirs relative to it)")
+	flagWorkspace := flag.String("workspace", "", "Workspace root directory (resolves scripts/tools/setup dirs relative to it)")
 	flag.Parse()
 
 	// Log to stderr only (stdout is reserved for JSON-RPC)

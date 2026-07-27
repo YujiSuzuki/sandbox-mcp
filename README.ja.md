@@ -281,7 +281,7 @@ package main
 
 ### ツールが `list_tools` に表示されない
 
-- `--tools-dir`（デフォルト `.sandbox/tools/`）直下の `.go` ファイルで、`package main` 宣言があるか確認してください
+- `--tools-dir`（デフォルト `.sandbox/tools/`）直下の `.go` ファイルで、ファイル名が `_test.go` で終わっていないか確認してください。スクリプトと異なり、一覧表示時に `package` 宣言の中身はチェックされません。
 
 ## 開発
 

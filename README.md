@@ -279,7 +279,7 @@ package main
 
 ### A tool doesn't appear in `list_tools`
 
-- Confirm it's a `.go` file directly under `--tools-dir` (default `.sandbox/tools/`) with a `package main` declaration.
+- Confirm it's a `.go` file directly under `--tools-dir` (default `.sandbox/tools/`) and that its name doesn't end in `_test.go`. Unlike scripts, listing doesn't check the `package` declaration.
 
 ## Development
 
