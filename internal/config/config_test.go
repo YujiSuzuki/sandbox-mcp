@@ -15,6 +15,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ToolsDir != ".sandbox/tools" {
 		t.Errorf("ToolsDir = %q, want %q", cfg.ToolsDir, ".sandbox/tools")
 	}
+	if cfg.SetupDir != ".sandbox/sandbox-mcp-setup" {
+		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, ".sandbox/sandbox-mcp-setup")
+	}
 	if cfg.UpdateCheck != true {
 		t.Errorf("UpdateCheck = %v, want true", cfg.UpdateCheck)
 	}
@@ -26,6 +29,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 
 	content := `scripts_dir: "/custom/scripts"
 tools_dir: "/custom/tools"
+setup_dir: "/custom/setup"
 update_check: false
 `
 	if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
@@ -42,6 +46,9 @@ update_check: false
 	}
 	if cfg.ToolsDir != "/custom/tools" {
 		t.Errorf("ToolsDir = %q, want %q", cfg.ToolsDir, "/custom/tools")
+	}
+	if cfg.SetupDir != "/custom/setup" {
+		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, "/custom/setup")
 	}
 	if cfg.UpdateCheck != false {
 		t.Errorf("UpdateCheck = %v, want false", cfg.UpdateCheck)
@@ -206,6 +213,7 @@ func TestLoadConfigWhitespaceOnlyFile(t *testing.T) {
 func TestLoadWithEnvVars(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "/env/scripts")
 	t.Setenv("SANDBOX_TOOLS_DIR", "/env/tools")
+	t.Setenv("SANDBOX_SETUP_DIR", "/env/setup")
 
 	cfg := LoadWithEnv(DefaultConfig())
 
@@ -214,6 +222,9 @@ func TestLoadWithEnvVars(t *testing.T) {
 	}
 	if cfg.ToolsDir != "/env/tools" {
 		t.Errorf("ToolsDir = %q, want %q", cfg.ToolsDir, "/env/tools")
+	}
+	if cfg.SetupDir != "/env/setup" {
+		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, "/env/setup")
 	}
 }
 
@@ -297,7 +308,7 @@ func TestResolveFullPriority(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
 	t.Setenv("SANDBOX_TOOLS_DIR", "")
 
-	cfg, err := Resolve(cfgFile, "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -325,7 +336,7 @@ func TestResolveEnvVarSurvivesPartialConfigFile(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
 	t.Setenv("SANDBOX_TOOLS_DIR", "from-env-tools")
 
-	cfg, err := Resolve(cfgFile, "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -347,14 +358,15 @@ func TestResolveCLIFlagWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgFile := filepath.Join(configDir, "sandbox-mcp.yaml")
-	if err := os.WriteFile(cfgFile, []byte("scripts_dir: from-file"), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte("scripts_dir: from-file\nsetup_dir: from-file-setup"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
+	t.Setenv("SANDBOX_SETUP_DIR", "from-env-setup")
 
 	// CLI flag should win over everything
-	cfg, err := Resolve(cfgFile, "from-flag", "", "")
+	cfg, err := Resolve(cfgFile, "from-flag", "", "from-flag-setup", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -362,25 +374,32 @@ func TestResolveCLIFlagWins(t *testing.T) {
 	if cfg.ScriptsDir != "from-flag" {
 		t.Errorf("ScriptsDir = %q, want %q (CLI flag should win)", cfg.ScriptsDir, "from-flag")
 	}
+	if cfg.SetupDir != "from-flag-setup" {
+		t.Errorf("SetupDir = %q, want %q (CLI flag should win over config file and env var)", cfg.SetupDir, "from-flag-setup")
+	}
 }
 
 func TestResolveWithWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 
 	// No config file, no flags → relative defaults resolved against workspace
-	cfg, err := Resolve("", "", "", workspace)
+	cfg, err := Resolve("", "", "", "", workspace)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
 
 	wantScripts := filepath.Join(workspace, ".sandbox/scripts")
 	wantTools := filepath.Join(workspace, ".sandbox/tools")
+	wantSetup := filepath.Join(workspace, ".sandbox/sandbox-mcp-setup")
 
 	if cfg.ScriptsDir != wantScripts {
 		t.Errorf("ScriptsDir = %q, want %q", cfg.ScriptsDir, wantScripts)
 	}
 	if cfg.ToolsDir != wantTools {
 		t.Errorf("ToolsDir = %q, want %q", cfg.ToolsDir, wantTools)
+	}
+	if cfg.SetupDir != wantSetup {
+		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, wantSetup)
 	}
 }
 
@@ -391,7 +410,7 @@ func TestResolveInvalidConfigFileReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := Resolve(cfgFile, "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "")
 	if err == nil {
 		t.Error("Expected error for invalid config file")
 	}
@@ -412,7 +431,7 @@ func TestResolveWorkspaceDoesNotOverrideAbsPath(t *testing.T) {
 	workspace := t.TempDir()
 
 	// CLI flag provides an absolute path → workspace should not change it
-	cfg, err := Resolve("", "/abs/scripts", "/abs/tools", workspace)
+	cfg, err := Resolve("", "/abs/scripts", "/abs/tools", "/abs/setup", workspace)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -422,5 +441,33 @@ func TestResolveWorkspaceDoesNotOverrideAbsPath(t *testing.T) {
 	}
 	if cfg.ToolsDir != "/abs/tools" {
 		t.Errorf("ToolsDir = %q, want %q (absolute path should not be changed)", cfg.ToolsDir, "/abs/tools")
+	}
+	if cfg.SetupDir != "/abs/setup" {
+		t.Errorf("SetupDir = %q, want %q (absolute path should not be changed)", cfg.SetupDir, "/abs/setup")
+	}
+}
+
+// TestResolveSetupDirEmptyStringDisables verifies that an explicit empty
+// setup_dir (e.g. from a config file) disables the setup-scripts feature
+// rather than resolving to the workspace root. Without this guard,
+// filepath.Join(workspace, "") would return the workspace root itself, and
+// since setup scripts run automatically on every "initialize" request
+// (unlike scripts/tools, which require an explicit run_script/run_tool
+// call), that would silently auto-execute any .sh file dropped there.
+func TestResolveSetupDirEmptyStringDisables(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "sandbox-mcp.yaml")
+	if err := os.WriteFile(cfgFile, []byte(`setup_dir: ""`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := t.TempDir()
+	cfg, err := Resolve(cfgFile, "", "", "", workspace)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	if cfg.SetupDir != "" {
+		t.Errorf("SetupDir = %q, want empty string (must not resolve to workspace root %q)", cfg.SetupDir, workspace)
 	}
 }

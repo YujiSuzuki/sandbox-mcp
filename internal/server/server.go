@@ -21,16 +21,18 @@ import (
 type Server struct {
 	scriptsDir   string
 	toolsDir     string
+	setupDir     string
 	workspaceDir string
 	version      string
 	initialized  bool
 }
 
 // New creates a new MCP server.
-func New(scriptsDir, toolsDir, version, workspaceDir string) *Server {
+func New(scriptsDir, toolsDir, setupDir, version, workspaceDir string) *Server {
 	return &Server{
 		scriptsDir:   scriptsDir,
 		toolsDir:     toolsDir,
+		setupDir:     setupDir,
 		workspaceDir: workspaceDir,
 		version:      version,
 	}
@@ -112,9 +114,8 @@ func (s *Server) buildInstructions() string {
 		}
 	}
 
-	if s.workspaceDir != "" {
-		setupDir := filepath.Join(s.workspaceDir, ".sandbox", "sandbox-mcp-setup")
-		if out := runSetupScripts(setupDir); out != "" {
+	if s.setupDir != "" {
+		if out := runSetupScripts(s.setupDir); out != "" {
 			sb.WriteString("\n")
 			sb.WriteString(out)
 		}

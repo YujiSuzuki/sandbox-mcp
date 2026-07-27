@@ -17,6 +17,7 @@ import (
 type Config struct {
 	ScriptsDir string
 	ToolsDir   string
+	SetupDir   string
 
 	// UpdateCheck is parsed from config (update_check, default true) but not
 	// yet consumed anywhere. Planned: on startup, check the latest sandbox-mcp
@@ -35,6 +36,7 @@ func DefaultConfig() Config {
 	return Config{
 		ScriptsDir:  ".sandbox/scripts",
 		ToolsDir:    ".sandbox/tools",
+		SetupDir:    ".sandbox/sandbox-mcp-setup",
 		UpdateCheck: true,
 	}
 }
@@ -68,6 +70,9 @@ func LoadFile(path string) (Config, error) {
 	if v, ok := parsed["tools_dir"]; ok {
 		cfg.ToolsDir = v
 	}
+	if v, ok := parsed["setup_dir"]; ok {
+		cfg.SetupDir = v
+	}
 	if v, ok := parsed["update_check"]; ok {
 		cfg.UpdateCheck = (v == "true")
 	}
@@ -83,6 +88,9 @@ func LoadWithEnv(cfg Config) Config {
 	}
 	if v := os.Getenv("SANDBOX_TOOLS_DIR"); v != "" {
 		cfg.ToolsDir = v
+	}
+	if v := os.Getenv("SANDBOX_SETUP_DIR"); v != "" {
+		cfg.SetupDir = v
 	}
 	return cfg
 }
@@ -109,18 +117,27 @@ func FindConfigFile(workspaceDir string) string {
 }
 
 // Resolve loads config with full priority chain.
-// CLI flag values should be passed as flagScriptsDir and flagToolsDir
-// (empty string means "not specified").
+// CLI flag values should be passed as flagScriptsDir, flagToolsDir, and
+// flagSetupDir (empty string means "not specified").
 // workspace must be an absolute path (callers should use filepath.Abs before
-// calling); when non-empty, relative ScriptsDir/ToolsDir values are joined
-// against it to produce absolute paths.
+// calling); when non-empty, relative ScriptsDir/ToolsDir/SetupDir values are
+// joined against it to produce absolute paths.
 //
 // Priority: CLI flags > config file > env vars > defaults
+//
+// SetupDir has one special case: an explicit empty string (e.g. setup_dir: ""
+// in the config file) disables the setup-scripts feature rather than being
+// joined against workspace — otherwise filepath.Join(workspace, "") would
+// resolve to the workspace root itself, and since setup scripts there run
+// automatically and unconditionally on every "initialize" request (unlike
+// scripts/tools, which require an explicit run_script/run_tool call), that
+// would silently turn any .sh file dropped in the workspace root into
+// auto-executed code.
 //
 // If configFile is specified but cannot be parsed, the error is returned along
 // with the config resolved from lower-priority layers (env vars and defaults).
 // Callers should log a warning and continue rather than aborting.
-func Resolve(configFile, flagScriptsDir, flagToolsDir, workspace string) (Config, error) {
+func Resolve(configFile, flagScriptsDir, flagToolsDir, flagSetupDir, workspace string) (Config, error) {
 	// Start with defaults
 	cfg := DefaultConfig()
 
@@ -145,6 +162,9 @@ func Resolve(configFile, flagScriptsDir, flagToolsDir, workspace string) (Config
 	if flagToolsDir != "" {
 		cfg.ToolsDir = flagToolsDir
 	}
+	if flagSetupDir != "" {
+		cfg.SetupDir = flagSetupDir
+	}
 
 	// Layer 4: resolve relative paths against workspace
 	// workspace が指定されていれば相対パスを絶対パスに解決
@@ -154,6 +174,9 @@ func Resolve(configFile, flagScriptsDir, flagToolsDir, workspace string) (Config
 		}
 		if !filepath.IsAbs(cfg.ToolsDir) {
 			cfg.ToolsDir = filepath.Join(workspace, cfg.ToolsDir)
+		}
+		if cfg.SetupDir != "" && !filepath.IsAbs(cfg.SetupDir) {
+			cfg.SetupDir = filepath.Join(workspace, cfg.SetupDir)
 		}
 	}
 
@@ -186,6 +209,9 @@ func mergeFileConfig(base Config, path string) (Config, error) {
 	}
 	if v, ok := parsed["tools_dir"]; ok {
 		base.ToolsDir = v
+	}
+	if v, ok := parsed["setup_dir"]; ok {
+		base.SetupDir = v
 	}
 	if v, ok := parsed["update_check"]; ok {
 		base.UpdateCheck = (v == "true")

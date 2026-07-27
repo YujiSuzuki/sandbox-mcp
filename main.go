@@ -49,6 +49,7 @@ func main() {
 	// CLI フラグの解析
 	flagScriptsDir := flag.String("scripts-dir", "", "Path to scripts directory (default: .sandbox/scripts)")
 	flagToolsDir := flag.String("tools-dir", "", "Path to tools directory (default: .sandbox/tools)")
+	flagSetupDir := flag.String("setup-dir", "", "Path to setup-scripts directory (default: .sandbox/sandbox-mcp-setup)")
 	flagConfig := flag.String("config", "", "Path to config file (default: auto-detect)")
 	flagWorkspace := flag.String("workspace", "", "Workspace root directory (resolves scripts/tools dirs relative to it)")
 	flag.Parse()
@@ -83,7 +84,7 @@ func main() {
 	if configFile == "" {
 		configFile = config.FindConfigFile(workspaceDir)
 	}
-	cfg, cfgErr := config.Resolve(configFile, *flagScriptsDir, *flagToolsDir, workspaceDir)
+	cfg, cfgErr := config.Resolve(configFile, *flagScriptsDir, *flagToolsDir, *flagSetupDir, workspaceDir)
 	if cfgErr != nil {
 		slog.Warn("config file error, using defaults/env", "file", configFile, "error", cfgErr)
 	}
@@ -91,6 +92,7 @@ func main() {
 	srv := server.New(
 		cfg.ScriptsDir,
 		cfg.ToolsDir,
+		cfg.SetupDir,
 		version,
 		workspaceDir,
 	)

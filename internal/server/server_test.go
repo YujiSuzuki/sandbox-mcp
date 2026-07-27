@@ -14,7 +14,7 @@ import (
 // Use for protocol-level tests that do not require real script or tool files.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New(t.TempDir(), t.TempDir(), "test", "")
+	return New(t.TempDir(), t.TempDir(), "", "test", "")
 }
 
 // newServerWithFixtures creates a server with minimal fixture files.
@@ -61,7 +61,7 @@ func newServerWithFixtures(t *testing.T) *Server {
 		t.Fatalf("failed to create tool fixture: %v", err)
 	}
 
-	return New(scriptsDir, toolsDir, "test", "")
+	return New(scriptsDir, toolsDir, "", "test", "")
 }
 
 // initServer initializes a test server and returns it ready for tools/call.
@@ -540,7 +540,7 @@ func TestToolsCallRunToolNonZeroExit(t *testing.T) {
 		"package main\nimport \"os\"\nfunc main() { os.Exit(1) }\n"), 0644); err != nil {
 		t.Fatalf("failed to create failing tool: %v", err)
 	}
-	srv := New(scriptsDir, toolsDir, "test", "")
+	srv := New(scriptsDir, toolsDir, "", "test", "")
 	srv.HandleRequest(&jsonrpc.Request{
 		JSONRPC: "2.0",
 		ID:      float64(1),
@@ -655,7 +655,7 @@ func TestInitializeInstructionsIncludesGitRepos(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(t.TempDir(), t.TempDir(), "test", workspaceDir)
+	srv := New(t.TempDir(), t.TempDir(), "", "test", workspaceDir)
 	resp := srv.HandleRequest(&jsonrpc.Request{
 		JSONRPC: "2.0",
 		ID:      float64(1),
@@ -680,7 +680,7 @@ func TestInitializeInstructionsIncludesGitRepos(t *testing.T) {
 }
 
 func TestInitializeInstructionsNoGitReposSection(t *testing.T) {
-	srv := New(t.TempDir(), t.TempDir(), "test", t.TempDir())
+	srv := New(t.TempDir(), t.TempDir(), "", "test", t.TempDir())
 	resp := srv.HandleRequest(&jsonrpc.Request{
 		JSONRPC: "2.0",
 		ID:      float64(1),
@@ -763,9 +763,14 @@ func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
 	}
 }
 
+// TestInitializeInstructionsIncludesSetupOutput uses a setup dir at a
+// non-default location (not workspaceDir/.sandbox/sandbox-mcp-setup) to prove
+// buildInstructions() uses the explicitly configured s.setupDir rather than
+// deriving it from workspaceDir: if the old hardcoded-join behavior were
+// still in place, this fixture would never be found.
 func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
 	workspaceDir := t.TempDir()
-	setupDir := filepath.Join(workspaceDir, ".sandbox", "sandbox-mcp-setup")
+	setupDir := filepath.Join(workspaceDir, "custom-setup-scripts")
 	if err := os.MkdirAll(setupDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +778,7 @@ func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(t.TempDir(), t.TempDir(), "test", workspaceDir)
+	srv := New(t.TempDir(), t.TempDir(), setupDir, "test", workspaceDir)
 	resp := srv.HandleRequest(&jsonrpc.Request{
 		JSONRPC: "2.0",
 		ID:      float64(1),
@@ -788,6 +793,34 @@ func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
 	instructions, _ := result["instructions"].(string)
 	if !strings.Contains(instructions, "custom project info") {
 		t.Errorf("Expected setup script output in instructions, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsSetupDirEmpty verifies that an empty setupDir
+// (e.g. resulting from an explicit `setup_dir: ""` override) disables the
+// setup-scripts feature without crashing, and does not fall back to scanning
+// workspaceDir.
+func TestInitializeInstructionsSetupDirEmpty(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "should-not-run.sh"), []byte("#!/bin/bash\necho 'should not run'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(t.TempDir(), t.TempDir(), "", "test", workspaceDir)
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if strings.Contains(instructions, "should not run") {
+		t.Errorf("Expected no setup output when setupDir is empty, got:\n%s", instructions)
 	}
 }
 
