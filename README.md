@@ -296,3 +296,13 @@ make clean         # Remove built binary
 ## License
 
 MIT
+
+
+
+
+## Consulting / Hire Me
+
+Open to consulting on MCP server security and AI agent sandbox design.
+
+- GitHub: https://github.com/YujiSuzuki
+- LinkedIn: https://www.linkedin.com/in/yuji-suzuki-dev

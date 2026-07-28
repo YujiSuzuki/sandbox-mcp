@@ -298,3 +298,12 @@ make clean         # ビルド済みバイナリを削除
 ## ライセンス
 
 MIT
+
+
+
+## コンサルティング / お仕事のご依頼
+
+MCPサーバーのセキュリティおよびAIエージェントのサンドボックス設計に関するコンサルティングを承っています。
+
+- GitHub: https://github.com/YujiSuzuki
+- LinkedIn: https://www.linkedin.com/in/yuji-suzuki-dev
