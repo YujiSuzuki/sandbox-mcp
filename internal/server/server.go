@@ -101,16 +101,16 @@ func (s *Server) handleInitialize(req *jsonrpc.Request) *jsonrpc.Response {
 }
 
 func (s *Server) buildInstructions() string {
-	var sb strings.Builder
-	sb.WriteString("sandbox-mcp provides scripts and tools for AI-assisted development.\n\n")
+	var capabilities strings.Builder
+	capabilities.WriteString("sandbox-mcp provides scripts and tools for AI-assisted development.\n\n")
 
 	tools, err := toolparser.ListTools(s.toolsDir)
 	if err == nil && len(tools) > 0 {
-		sb.WriteString("Available tools (use run_tool to execute):\n")
+		capabilities.WriteString("Available tools (use run_tool to execute):\n")
 		for _, t := range tools {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+			capabilities.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
 		}
-		sb.WriteString("\nUse list_tools for full details.\n")
+		capabilities.WriteString("\nUse list_tools for full details.\n")
 	}
 
 	scripts, err := scriptparser.ListScripts(s.scriptsDir)
@@ -122,116 +122,158 @@ func (s *Server) buildInstructions() string {
 			}
 		}
 		if len(advertised) > 0 {
-			sb.WriteString("\nAvailable scripts (use run_script to execute):\n")
+			capabilities.WriteString("\nAvailable scripts (use run_script to execute):\n")
 			for _, sc := range advertised {
-				sb.WriteString(fmt.Sprintf("- %s: %s\n", sc.Name, sc.Description))
+				capabilities.WriteString(fmt.Sprintf("- %s: %s\n", sc.Name, sc.Description))
 			}
-			sb.WriteString("\nUse list_scripts for full details.\n")
+			capabilities.WriteString("\nUse list_scripts for full details.\n")
 		}
 	}
 
 	repos := scanGitRepos(s.workspaceDir, 3)
 	if len(repos) > 0 {
-		sb.WriteString("\nNested git repositories (independent repos — run git commands from within each directory, not the workspace root):\n")
+		capabilities.WriteString("\nNested git repositories (independent repos — run git commands from within each directory, not the workspace root):\n")
 		for _, r := range repos {
-			sb.WriteString(fmt.Sprintf("- %s\n", r))
+			capabilities.WriteString(fmt.Sprintf("- %s\n", r))
 		}
 	}
 
+	// Resolved at most once per buildInstructions() call (itself invoked at
+	// most once per process, see cachedInstructions) and shared by every
+	// content source spilled below -- resolving it more than once would wipe
+	// out whichever source already wrote into the directory.
+	myOutputDir := resolveMyOutputDir(s.setupOutputDir)
+
+	var sb strings.Builder
+	var spilled []string
+
+	if fileName, ok := spillFile(myOutputDir, "00-capabilities.txt", []byte(capabilities.String())); ok {
+		spilled = append(spilled, fileName)
+	} else {
+		sb.WriteString(capabilities.String())
+	}
+
 	if s.setupDir != "" {
-		if out := runSetupScripts(s.setupDir, s.setupOutputDir); out != "" {
-			sb.WriteString("\n")
-			sb.WriteString(out)
+		inline, setupSpilled := runSetupScripts(s.setupDir, myOutputDir)
+		spilled = append(spilled, setupSpilled...)
+		if inline != "" {
+			if sb.Len() > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(inline)
 		}
+	}
+
+	if len(spilled) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(fmt.Sprintf("sandbox-mcp produced file(s) under %s -- these were moved out of your instructions only due to space, not because they're optional: read them now: %s\n", myOutputDir, strings.Join(spilled, ", ")))
 	}
 
 	return sb.String()
 }
 
-// runSetupScripts runs all .sh scripts in setupDir alphabetically and returns
-// their combined stdout, to be inlined into the MCP instructions field.
-// Failed or timed-out scripts are silently skipped.
+// resolveMyOutputDir resolves and prepares this process's own spill
+// directory under outputDir/pidsSubdir: pruning stale dead-PID directories,
+// then wiping this process's own subdirectory clean (a leftover here can
+// only be stale garbage, since a live process can't share our own PID).
+// Returns "" if outputDir is empty, signaling to callers that spilling is
+// disabled and they should fall back to inlining.
+//
+// Must be called exactly ONCE per buildInstructions() invocation, and the
+// result shared by every content source that spills into it (currently: the
+// capabilities dump and runSetupScripts' per-script "@output: file" spill).
+// Calling it more than once per invocation would wipe out whichever source
+// already wrote into the directory.
+func resolveMyOutputDir(outputDir string) string {
+	if outputDir == "" {
+		return ""
+	}
+	pid := os.Getpid()
+	pidsDir := filepath.Join(outputDir, pidsSubdir)
+	pruneStaleOutputDirs(pidsDir, pid)
+	myOutputDir := filepath.Join(pidsDir, strconv.Itoa(pid))
+	os.RemoveAll(myOutputDir)
+	return myOutputDir
+}
+
+// spillFile writes content to a file named name under myOutputDir, creating
+// myOutputDir if needed. Returns (name, true) on success, or ("", false) on
+// any failure (including myOutputDir being "", i.e. spilling disabled) --
+// callers must fall back to inlining content directly on failure, so a
+// spill attempt never silently drops output.
+func spillFile(myOutputDir, name string, content []byte) (string, bool) {
+	if myOutputDir == "" {
+		return "", false
+	}
+	if err := os.MkdirAll(myOutputDir, 0755); err != nil {
+		return "", false
+	}
+	if err := os.WriteFile(filepath.Join(myOutputDir, name), content, 0644); err != nil {
+		return "", false
+	}
+	return name, true
+}
+
+// runSetupScripts runs all .sh scripts in setupDir alphabetically. It
+// returns the combined stdout of scripts that stay inline, and separately
+// the list of filenames it spilled under myOutputDir for scripts tagged
+// "@output: file". It builds no pointer line itself -- the caller
+// (buildInstructions) merges this function's spilled names together with
+// any other content source's spilled names into exactly one combined
+// pointer line. Failed or timed-out scripts are silently skipped.
 //
 // A script whose header declares "@output: file" (see
-// setupScriptWantsFileOutput) has its stdout written under outputDir instead
-// of inlined directly, with only a short pointer line surfacing here. This is
-// not a position-based mitigation -- setup script output is already the last
-// section of buildInstructions, so a script running early within this
-// section (e.g. alphabetically first) is no safer from truncation than one
-// running last. The tag instead gives output that must reliably reach the
-// AI an unconditional, position-independent guarantee: because the client
-// silently truncates the instructions field once its byte budget is
-// exceeded (see buildInstructions), relying on ordering to let truncation
-// quietly drop that content would lose it with no trace that anything was
-// cut. Spilling to a file avoids that outcome entirely, and
+// setupScriptWantsFileOutput) has its stdout spilled via spillFile into
+// myOutputDir instead of inlined directly; its filename is reported back to
+// the caller via the spilled return value rather than a pointer line built
+// here. This is not a position-based mitigation -- setup script output is
+// already the last section of buildInstructions, so a script running early
+// within this section (e.g. alphabetically first) is no safer from
+// truncation than one running last. The tag instead gives output that must
+// reliably reach the AI an unconditional, position-independent guarantee:
+// because the client silently truncates the instructions field once its
+// byte budget is exceeded (see buildInstructions), relying on ordering to
+// let truncation quietly drop that content would lose it with no trace that
+// anything was cut. Spilling to a file avoids that outcome entirely, and
 // also shrinks the field's overall footprint, lowering truncation risk for
-// everything else. If outputDir is empty, "@output: file" has no effect and
-// the script's output is inlined as usual, so the tag never silently drops
-// output.
+// everything else. If myOutputDir is empty, "@output: file" has no effect
+// and the script's output is inlined as usual, so the tag never silently
+// drops output.
 //
-// Spilled files go under outputDir/<pidsSubdir>/<pid>/ (this process's own
-// PID), not directly under outputDir, for two reasons. First, sandbox-mcp is
-// commonly run as several concurrent instances against the same workspace
-// (e.g. multiple Claude Code windows on the same repo) -- a shared, unscoped
-// file would let one instance overwrite another's output mid-read. Second,
-// outputDir itself is arbitrary operator config (setup_output_dir /
-// SANDBOX_SETUP_OUTPUT_DIR, see internal/config) that may not be exclusively
-// sandbox-mcp's own scratch space -- pruneStaleOutputDirs recursively deletes
-// any integer-named subdirectory it finds whose PID isn't alive, so scanning
-// outputDir directly could destroy unrelated directories an operator happens
-// to have there (e.g. version folders "1", "2", "3"). Confining that scan to
-// the fixed pidsSubdir component means pruning only ever touches directories
-// sandbox-mcp itself created. Before writing, stale directories left behind
-// by past instances that are no longer running are pruned (see
-// pruneStaleOutputDirs), so disk usage doesn't grow unbounded.
-//
-// If any files are spilled, exactly one pointer line lists all of them,
-// rather than one line per file -- otherwise tagging more scripts over time
-// would recreate the same linear growth in the instructions field that
-// "@output: file" exists to avoid.
+// myOutputDir must already be resolved via resolveMyOutputDir (or be "" to
+// disable spilling) -- this function does no pruning or wiping of its own,
+// so it is safe to call after another content source has already written
+// into myOutputDir in the same buildInstructions() invocation.
 //
 // ヘッダーに "@output: file" を宣言したスクリプト(setupScriptWantsFileOutput
-// 参照)は、標準出力を直接埋め込む代わりに outputDir 配下へ書き出し、ここには
-// 短いポインタ行だけを残す。これは実行順に頼った対策ではない -- セットアップ
-// スクリプトの出力はもともと buildInstructions の最後のセクションなので、
-// このセクション内で早く実行されるスクリプト(アルファベット順で先頭など)も、
-// 最後に実行されるものと切り詰めリスクは変わらない。このタグは、AI に確実に
-// 届ける必要のある出力に対して、実行順に依存しない無条件の保証を与えるための
-// ものである。クライアントは instructions のバイト予算を超えると無音のまま
-// 切り詰めるため(buildInstructions 参照)、実行順に任せてその内容が黙って
+// 参照)は、標準出力を直接埋め込む代わりに spillFile 経由で myOutputDir へ
+// 書き出し、そのファイル名は(ここでポインタ行を組み立てるのではなく)戻り値
+// spilled 経由で呼び出し元へ伝える。これは実行順に頼った対策ではない --
+// セットアップスクリプトの出力はもともと buildInstructions の最後のセクション
+// なので、このセクション内で早く実行されるスクリプト(アルファベット順で先頭
+// など)も、最後に実行されるものと切り詰めリスクは変わらない。このタグは、AI に
+// 確実に届ける必要のある出力に対して、実行順に依存しない無条件の保証を与える
+// ためのものである。クライアントは instructions のバイト予算を超えると無音の
+// まま切り詰めるため(buildInstructions 参照)、実行順に任せてその内容が黙って
 // 削られるに任せると、何が削られたのか痕跡すら残らない。ファイルへの書き出しは
 // この事態を完全に回避し、フィールド全体のサイズも小さくなるため、他の内容の切り詰め
-// リスクも下がる。outputDir が空文字列の場合は "@output: file" は無効となり、
+// リスクも下がる。myOutputDir が空文字列の場合は "@output: file" は無効となり、
 // スクリプトの出力は従来通りそのまま埋め込まれる -- つまりこのタグが出力を
 // 黙って失わせることはない。
 //
-// 書き出したファイルは outputDir 直下ではなく outputDir/<pidsSubdir>/<pid>/
-// (このプロセス自身の PID) の下に置く。理由は2つある。第一に、sandbox-mcp は
-// 同じワークスペースに対して複数インスタンスが同時に動くことが多く(同じ
-// リポジトリを開いた複数の Claude Code ウィンドウなど)、共有された無区別の
-// ファイルだと、あるインスタンスが読み取り中の別インスタンスの出力を上書き
-// してしまう。第二に、outputDir 自体は運用者側の任意設定(setup_output_dir /
-// SANDBOX_SETUP_OUTPUT_DIR、internal/config 参照)であり、sandbox-mcp 専用の
-// 作業領域とは限らない -- pruneStaleOutputDirs は、生存していない PID の
-// 整数名サブディレクトリを見つけ次第再帰的に削除するため、outputDir を直接
-// スキャンすると、運用者がそこに置いている無関係なディレクトリ(バージョン
-// フォルダ "1", "2", "3" など)まで壊しかねない。固定の pidsSubdir 配下だけを
-// スキャン対象にすることで、削除対象を sandbox-mcp 自身が作成したディレクトリ
-// だけに限定できる。書き込みの前には、動いていない過去のインスタンスが残した
-// 古いディレクトリを削除する(pruneStaleOutputDirs 参照)ため、ディスク使用量が
-// 際限なく増え続けることもない。
-//
-// ファイルを書き出した場合、ファイルごとに1行ではなく、それらをまとめた
-// ポインタ行を1行だけ出力する -- そうしないと、タグを付けるスクリプトが
-// 増えるたびに、"@output: file" がそもそも防ごうとしていた instructions
-// フィールドの線形増加が再び起きてしまう。
-func runSetupScripts(setupDir, outputDir string) string {
+// myOutputDir は resolveMyOutputDir で解決済みのものを渡すこと("" を渡せば
+// 退避を無効化できる) -- この関数自身はprune/wipeを一切行わないため、同じ
+// buildInstructions() 呼び出しの中で別の退避元が既に書き込んだ後でも
+// 安全に呼び出せる。
+func runSetupScripts(setupDir, myOutputDir string) (inline string, spilled []string) {
 	if setupDir == "" {
-		return ""
+		return "", nil
 	}
 	entries, err := os.ReadDir(setupDir)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	var names []string
 	for _, entry := range entries {
@@ -240,26 +282,11 @@ func runSetupScripts(setupDir, outputDir string) string {
 		}
 	}
 	if len(names) == 0 {
-		return ""
+		return "", nil
 	}
 	sort.Strings(names)
 
-	var myOutputDir string
-	if outputDir != "" {
-		pid := os.Getpid()
-		pidsDir := filepath.Join(outputDir, pidsSubdir)
-		pruneStaleOutputDirs(pidsDir, pid)
-		myOutputDir = filepath.Join(pidsDir, strconv.Itoa(pid))
-		// Start this run's directory clean; a leftover here could only be
-		// stale garbage, since a live process can't share our own PID.
-		// 今回の実行用ディレクトリは空の状態から始める -- 生存中の他プロセスが
-		// 自分と同じ PID を持つことはないため、ここに何か残っていたとしても
-		// それは古いゴミでしかない。
-		os.RemoveAll(myOutputDir)
-	}
-
 	var sb strings.Builder
-	var spilled []string
 	for _, name := range names {
 		path := filepath.Join(setupDir, name)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -269,19 +296,17 @@ func runSetupScripts(setupDir, outputDir string) string {
 			continue
 		}
 
-		if myOutputDir != "" && setupScriptWantsFileOutput(path) {
+		if setupScriptWantsFileOutput(path) {
 			fileName := strings.TrimSuffix(name, ".sh") + ".txt"
-			outPath := filepath.Join(myOutputDir, fileName)
-			if err := os.MkdirAll(myOutputDir, 0755); err == nil {
-				if err := os.WriteFile(outPath, out, 0644); err == nil {
-					spilled = append(spilled, fileName)
-					continue
-				}
+			if spilledName, ok := spillFile(myOutputDir, fileName, out); ok {
+				spilled = append(spilled, spilledName)
+				continue
 			}
-			// Fall through to inline on any write failure, so the tag never
-			// silently drops the script's output.
-			// 書き込みに失敗した場合は埋め込み方式にフォールバックする。これに
-			// より、このタグがスクリプトの出力を黙って失わせることはない。
+			// Fall through to inline on any write failure (or myOutputDir
+			// == ""), so the tag never silently drops the script's output.
+			// 書き込みに失敗した場合(または myOutputDir == "" の場合)は
+			// 埋め込み方式にフォールバックする。これにより、このタグが
+			// スクリプトの出力を黙って失わせることはない。
 		}
 
 		sb.Write(out)
@@ -290,11 +315,7 @@ func runSetupScripts(setupDir, outputDir string) string {
 		}
 	}
 
-	if len(spilled) > 0 {
-		sb.WriteString(fmt.Sprintf("Setup produced file(s) under %s -- these were moved out of your instructions only due to space, not because they're optional: read them now: %s\n", myOutputDir, strings.Join(spilled, ", ")))
-	}
-
-	return sb.String()
+	return sb.String(), spilled
 }
 
 // pidsSubdir is the fixed path component sandbox-mcp nests its own PID

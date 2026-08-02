@@ -190,6 +190,8 @@ echo "This goes to a file, not directly into the instructions field."
 
 `instructions` has a byte budget, and MCP clients silently truncate it once exceeded — output beyond the limit is dropped with no indication anything was cut. Tagging a script `@output: file` avoids that risk: the full stdout is written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/<script-name>.txt` (default `.sandbox/.state/setup-output`, configurable via `--setup-output-dir` / `setup_output_dir` in the config file / `SANDBOX_SETUP_OUTPUT_DIR`) instead of counting against the `instructions` budget, and `instructions` gets only a short pointer line. Stale directories left behind by past instances that are no longer running are pruned automatically. If no output directory is configured, the tag has no effect and output is inlined as usual.
 
+SandboxMCP's own capabilities section — the "Available tools" / "Available scripts" / nested git repos listing at the top of `instructions` — grows as you add more scripts and tools, so it's spilled the same way whenever `setup-output-dir` is configured: it's written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/00-capabilities.txt`, merged into the same single pointer line as any spilled setup scripts. This happens automatically, with no tag or extra configuration needed; if no output directory is configured, or the spill attempt fails, it stays inlined as before.
+
 > **Real-world example:** see [AI Sandbox's `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) and [its architecture docs](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.md#startup-context-injection).
 
 ## Adding Scripts and Tools

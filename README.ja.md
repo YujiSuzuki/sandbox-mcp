@@ -190,6 +190,8 @@ echo "この内容は instructions ではなくファイルに書き出されま
 
 標準出力は `instructions` のバイト予算を消費する代わりに `<setup-output-dir>/sandbox-mcp-pids/<pid>/<スクリプト名>.txt`（デフォルトは `.sandbox/.state/setup-output`。`--setup-output-dir` / 設定ファイルの `setup_output_dir` / 環境変数 `SANDBOX_SETUP_OUTPUT_DIR` で変更可能）へ書き出され、`instructions` には短いポインタ行だけが残ります。
 
+SandboxMCP自身が持つ「Available tools」「Available scripts」「ネストgitリポジトリ一覧」という`instructions`冒頭のセクションも、スクリプトやツールを追加していくほど肥大化していく性質を持つため、`setup-output-dir`が設定されていれば同じ仕組みで`<setup-output-dir>/sandbox-mcp-pids/<pid>/00-capabilities.txt`へ書き出され、退避済みのセットアップスクリプトと同じ1本のポインタ行に統合されます。タグや追加設定なしに常にこの動作になり、出力先ディレクトリが未設定の場合や書き出しに失敗した場合は、従来通りインラインのままです。
+
 > **実際の運用例:** [AI Sandbox の `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) と [そのアーキテクチャドキュメント](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.ja.md#起動時コンテキスト注入) を参照してください。
 
 ## スクリプトとツールの追加

@@ -701,20 +701,20 @@ func TestInitializeInstructionsNoGitReposSection(t *testing.T) {
 }
 
 func TestRunSetupScripts_EmptyPath(t *testing.T) {
-	if out := runSetupScripts("", ""); out != "" {
-		t.Errorf("Expected empty output for empty path, got %q", out)
+	if out, spilled := runSetupScripts("", ""); out != "" || spilled != nil {
+		t.Errorf("Expected empty output for empty path, got %q, %v", out, spilled)
 	}
 }
 
 func TestRunSetupScripts_NonexistentDir(t *testing.T) {
-	if out := runSetupScripts("/nonexistent/path", ""); out != "" {
-		t.Errorf("Expected empty output for nonexistent dir, got %q", out)
+	if out, spilled := runSetupScripts("/nonexistent/path", ""); out != "" || spilled != nil {
+		t.Errorf("Expected empty output for nonexistent dir, got %q, %v", out, spilled)
 	}
 }
 
 func TestRunSetupScripts_EmptyDir(t *testing.T) {
-	if out := runSetupScripts(t.TempDir(), ""); out != "" {
-		t.Errorf("Expected empty output for empty dir, got %q", out)
+	if out, spilled := runSetupScripts(t.TempDir(), ""); out != "" || spilled != nil {
+		t.Errorf("Expected empty output for empty dir, got %q, %v", out, spilled)
 	}
 }
 
@@ -723,7 +723,7 @@ func TestRunSetupScripts_RunsShScript(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "info.sh"), []byte("#!/bin/bash\necho 'hello from setup'\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	out := runSetupScripts(dir, "")
+	out, _ := runSetupScripts(dir, "")
 	if !strings.Contains(out, "hello from setup") {
 		t.Errorf("Expected script output, got %q", out)
 	}
@@ -734,7 +734,7 @@ func TestRunSetupScripts_SkipsNonShFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "info.py"), []byte("print('should not run')\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	out := runSetupScripts(dir, "")
+	out, _ := runSetupScripts(dir, "")
 	if strings.Contains(out, "should not run") {
 		t.Errorf("Expected non-.sh files to be skipped, got %q", out)
 	}
@@ -746,7 +746,7 @@ func TestRunSetupScripts_HandlesFailedScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Should not panic; failed scripts are silently skipped
-	_ = runSetupScripts(dir, "")
+	_, _ = runSetupScripts(dir, "")
 }
 
 func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
@@ -757,7 +757,7 @@ func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.sh"), []byte("#!/bin/bash\necho 'A'\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	out := runSetupScripts(dir, "")
+	out, _ := runSetupScripts(dir, "")
 	aIdx := strings.Index(out, "A")
 	bIdx := strings.Index(out, "B")
 	if aIdx == -1 || bIdx == -1 || aIdx > bIdx {
@@ -766,30 +766,18 @@ func TestRunSetupScripts_RunsInAlphabeticalOrder(t *testing.T) {
 }
 
 // TestRunSetupScripts_OutputFileTagSpillsToDisk verifies that a script whose
-// header declares "@output: file" has its stdout written under outputDir
-// instead of being inlined into the returned instructions text, with only a
-// short pointer line surfacing inline. This keeps content that must
-// reliably reach the AI out of the MCP instructions byte budget (see
-// buildInstructions), which the client silently truncates once exceeded
-// with no indication anything was cut.
-//
-// The file is written under a subdirectory named after this process's own
-// PID (see pruneStaleOutputDirs) rather than directly under outputDir, so
-// that concurrent sandbox-mcp instances sharing the same workspace (e.g.
-// multiple Claude Code windows open on the same repo) never clobber each
-// other's spilled output.
+// header declares "@output: file" has its stdout written under myOutputDir
+// instead of being inlined into the returned text, with its filename
+// reported via the spilled return value rather than a pointer line. This
+// keeps content that must reliably reach the AI out of the MCP instructions
+// byte budget (see buildInstructions), which the client silently truncates
+// once exceeded with no indication anything was cut.
 //
 // ヘッダーで "@output: file" を宣言したスクリプトの標準出力が、返される
-// instructions テキストに埋め込まれる代わりに outputDir 配下に書き出され、
-// 埋め込み側には短いポインタ行だけが残ることを検証する。これにより、AI に
+// テキストに埋め込まれる代わりに myOutputDir 配下に書き出され、そのファイル名は
+// ポインタ行ではなく spilled 戻り値経由で伝わることを検証する。これにより、AI に
 // 確実に届ける必要のある出力を MCP の instructions バイト予算(buildInstructions
 // 参照。クライアントは超過分を痕跡なく無音のまま切り詰める)から切り離せる。
-//
-// ファイルは outputDir 直下ではなく、このプロセス自身の PID を名前とする
-// サブディレクトリ(pruneStaleOutputDirs 参照)の下に書き出される。これに
-// より、同じワークスペースを共有する複数の sandbox-mcp インスタンス(同じ
-// リポジトリを開いた複数の Claude Code ウィンドウなど)が互いの書き出し
-// 結果を上書きすることがない。
 func TestRunSetupScripts_OutputFileTagSpillsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := t.TempDir()
@@ -798,18 +786,14 @@ func TestRunSetupScripts_OutputFileTagSpillsToDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runSetupScripts(dir, outputDir)
+	myDir := resolveMyOutputDir(outputDir)
+	out, spilled := runSetupScripts(dir, myDir)
 
 	if strings.Contains(out, "verbose detail that should not be inlined") {
 		t.Errorf("Expected @output: file script's stdout NOT to be inlined, got %q", out)
 	}
-
-	myDir := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()))
-	if !strings.Contains(out, myDir) {
-		t.Errorf("Expected inline output to mention directory %q, got %q", myDir, out)
-	}
-	if !strings.Contains(out, "big.txt") {
-		t.Errorf("Expected inline output to mention filename %q, got %q", "big.txt", out)
+	if len(spilled) != 1 || spilled[0] != "big.txt" {
+		t.Errorf("Expected spilled to contain exactly [%q], got %v", "big.txt", spilled)
 	}
 
 	wantFile := filepath.Join(myDir, "big.txt")
@@ -824,22 +808,19 @@ func TestRunSetupScripts_OutputFileTagSpillsToDisk(t *testing.T) {
 
 // TestRunSetupScripts_DoesNotPruneUnrelatedDirsAtOutputRoot verifies that
 // setup_output_dir can safely point at a directory that isn't exclusively
-// sandbox-mcp's own scratch space: pruneStaleOutputDirs only ever scans
-// outputDir/pidsSubdir, never outputDir itself, so a pre-existing, unrelated
-// directory with an integer name (e.g. a version folder "12345") sitting
-// directly at outputDir's root is left untouched.
+// sandbox-mcp's own scratch space: resolveMyOutputDir's call to
+// pruneStaleOutputDirs only ever scans outputDir/pidsSubdir, never outputDir
+// itself, so a pre-existing, unrelated directory with an integer name (e.g.
+// a version folder "12345") sitting directly at outputDir's root is left
+// untouched.
 func TestRunSetupScripts_DoesNotPruneUnrelatedDirsAtOutputRoot(t *testing.T) {
-	dir := t.TempDir()
 	outputDir := t.TempDir()
 	unrelated := filepath.Join(outputDir, "12345")
 	if err := os.MkdirAll(filepath.Join(unrelated, "important-data"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plain.sh"), []byte("#!/bin/bash\necho hi\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
 
-	runSetupScripts(dir, outputDir)
+	resolveMyOutputDir(outputDir)
 
 	if _, err := os.Stat(unrelated); err != nil {
 		t.Errorf("Expected unrelated directory %q at outputDir root to survive, got: %v", unrelated, err)
@@ -847,17 +828,12 @@ func TestRunSetupScripts_DoesNotPruneUnrelatedDirsAtOutputRoot(t *testing.T) {
 }
 
 // TestRunSetupScripts_ConsolidatesMultipleFileTagsIntoOneLine verifies that
-// when several scripts are tagged "@output: file", the instructions text
-// gets exactly one pointer line naming all of them, rather than one full
-// sentence per script. Without this, tagging more scripts over time would
-// re-create the same linear growth in the instructions field that "@output:
-// file" was introduced to avoid in the first place.
-//
-// 複数のスクリプトに "@output: file" が付いている場合、instructions テキストに
-// スクリプトごとの1文ではなく、それらをまとめたポインタ行がちょうど1行だけ
-// 現れることを検証する。これがないと、タグを付けるスクリプトが増えるたびに、
-// "@output: file" が本来防ごうとしていた instructions フィールドの線形増加が
-// 再び起きてしまう。
+// runSetupScripts itself reports every spilled script filename via its
+// spilled return value rather than building any pointer line -- the
+// "exactly one combined pointer line" invariant is asserted at the
+// buildInstructions level (see
+// TestInitializeInstructionsConsolidatesAllSpilledFilesIntoOneLine), since
+// buildInstructions is what merges spilled names across content sources.
 func TestRunSetupScripts_ConsolidatesMultipleFileTagsIntoOneLine(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := t.TempDir()
@@ -868,22 +844,22 @@ func TestRunSetupScripts_ConsolidatesMultipleFileTagsIntoOneLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runSetupScripts(dir, outputDir)
+	myDir := resolveMyOutputDir(outputDir)
+	out, spilled := runSetupScripts(dir, myDir)
 
-	lineCount := strings.Count(out, "\n")
-	if lineCount != 1 {
-		t.Errorf("Expected exactly one line in output, got %d lines: %q", lineCount, out)
+	if out != "" {
+		t.Errorf("Expected no inline output when both scripts spill, got %q", out)
 	}
-	if !strings.Contains(out, "a.txt") || !strings.Contains(out, "b.txt") {
-		t.Errorf("Expected consolidated line to mention both a.txt and b.txt, got %q", out)
+	if len(spilled) != 2 || spilled[0] != "a.txt" || spilled[1] != "b.txt" {
+		t.Errorf("Expected spilled to be [a.txt b.txt], got %v", spilled)
 	}
 }
 
 // TestRunSetupScripts_OutputFileTagWithoutOutputDirFallsBackInline verifies
 // that "@output: file" degrades to normal inline behavior when no
-// outputDir is configured, rather than silently dropping the output.
+// myOutputDir is configured, rather than silently dropping the output.
 //
-// outputDir が設定されていない場合、"@output: file" は出力を黙って失わせる
+// myOutputDir が設定されていない場合、"@output: file" は出力を黙って失わせる
 // のではなく、通常の埋め込み挙動にフォールバックすることを検証する。
 func TestRunSetupScripts_OutputFileTagWithoutOutputDirFallsBackInline(t *testing.T) {
 	dir := t.TempDir()
@@ -892,18 +868,21 @@ func TestRunSetupScripts_OutputFileTagWithoutOutputDirFallsBackInline(t *testing
 		t.Fatal(err)
 	}
 
-	out := runSetupScripts(dir, "")
+	out, spilled := runSetupScripts(dir, "")
 
 	if !strings.Contains(out, "fallback content") {
-		t.Errorf("Expected inline fallback when outputDir is empty, got %q", out)
+		t.Errorf("Expected inline fallback when myOutputDir is empty, got %q", out)
+	}
+	if spilled != nil {
+		t.Errorf("Expected no spilled files when myOutputDir is empty, got %v", spilled)
 	}
 }
 
 // TestRunSetupScripts_DefaultOutputModeIsInline verifies that scripts without
 // an "@output:" header keep the pre-existing inline behavior even when
-// outputDir is configured, preserving backward compatibility.
+// myOutputDir is configured, preserving backward compatibility.
 //
-// "@output:" ヘッダーを持たないスクリプトは、outputDir が設定されている場合
+// "@output:" ヘッダーを持たないスクリプトは、myOutputDir が設定されている場合
 // でも従来通りの埋め込み挙動のままであり、後方互換性が保たれることを検証する。
 func TestRunSetupScripts_DefaultOutputModeIsInline(t *testing.T) {
 	dir := t.TempDir()
@@ -912,7 +891,8 @@ func TestRunSetupScripts_DefaultOutputModeIsInline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runSetupScripts(dir, outputDir)
+	myDir := resolveMyOutputDir(outputDir)
+	out, _ := runSetupScripts(dir, myDir)
 
 	if !strings.Contains(out, "plain inline output") {
 		t.Errorf("Expected untagged script to remain inline, got %q", out)
@@ -1082,6 +1062,28 @@ func TestPruneStaleOutputDirs_RemovesOnlyDeadPIDDirs(t *testing.T) {
 	}
 }
 
+// TestResolveMyOutputDir_EmptyOutputDirReturnsEmpty locks in the contract
+// that spillFile and any future content source depend on: an empty
+// outputDir means spilling is disabled, signaled by an empty return value --
+// not a relative path such as filepath.Join("", pidsSubdir, pid), which
+// would resolve against the current working directory instead.
+func TestResolveMyOutputDir_EmptyOutputDirReturnsEmpty(t *testing.T) {
+	if got := resolveMyOutputDir(""); got != "" {
+		t.Errorf("Expected empty result for empty outputDir, got %q", got)
+	}
+}
+
+// TestResolveMyOutputDir_ResolvesUnderPidsSubdir verifies the returned
+// directory is nested under outputDir/pidsSubdir/<pid>, matching the path
+// structure runSetupScripts previously built inline.
+func TestResolveMyOutputDir_ResolvesUnderPidsSubdir(t *testing.T) {
+	outputDir := t.TempDir()
+	want := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()))
+	if got := resolveMyOutputDir(outputDir); got != want {
+		t.Errorf("Expected %q, got %q", want, got)
+	}
+}
+
 // TestInitializeInstructionsIncludesSetupOutput uses a setup dir at a
 // non-default location (not workspaceDir/.sandbox/sandbox-mcp-setup) to
 // verify buildInstructions() uses the explicitly configured s.setupDir
@@ -1192,6 +1194,175 @@ func TestInitializeInstructionsSetupDirEmpty(t *testing.T) {
 	instructions, _ := result["instructions"].(string)
 	if strings.Contains(instructions, "should not run") {
 		t.Errorf("Expected no setup output when setupDir is empty, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsSpillsCapabilitiesWhenOutputDirConfigured
+// verifies that the header/tools/scripts/repos section built directly in
+// buildInstructions (previously always inlined, unlike setup scripts'
+// opt-in "@output: file") is itself spilled to 00-capabilities.txt whenever
+// setupOutputDir is configured, shrinking sandbox-mcp's own footprint in the
+// shared instructions byte budget (see runSetupScripts' doc comment on
+// truncation risk).
+func TestInitializeInstructionsSpillsCapabilitiesWhenOutputDirConfigured(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	outputDir := t.TempDir()
+	srv.setupOutputDir = outputDir
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+
+	if strings.Contains(instructions, "Available tools") || strings.Contains(instructions, "install-slash-command.sh") {
+		t.Errorf("Expected capabilities content NOT to be inlined, got:\n%s", instructions)
+	}
+	if !strings.Contains(instructions, "00-capabilities.txt") {
+		t.Errorf("Expected pointer line to mention 00-capabilities.txt, got:\n%s", instructions)
+	}
+
+	spilledFile := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()), "00-capabilities.txt")
+	written, err := os.ReadFile(spilledFile)
+	if err != nil {
+		t.Fatalf("Expected spilled file %q to exist: %v", spilledFile, err)
+	}
+	if !strings.Contains(string(written), "Available tools") || !strings.Contains(string(written), "install-slash-command.sh") {
+		t.Errorf("Expected spilled file to contain capabilities content, got:\n%s", string(written))
+	}
+}
+
+// TestInitializeInstructionsCapabilitiesFallBackInlineWhenOutputDirEmpty
+// verifies backward compatibility: with setupOutputDir left at its
+// unconfigured default (""), capabilities stay inlined exactly as before
+// this feature existed.
+func TestInitializeInstructionsCapabilitiesFallBackInlineWhenOutputDirEmpty(t *testing.T) {
+	srv := newServerWithFixtures(t)
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if !strings.Contains(instructions, "Available tools (use run_tool to execute):") {
+		t.Errorf("Expected capabilities to stay inline when setupOutputDir is empty, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsCapabilitiesFallBackInlineOnWriteFailure
+// verifies that spillFile's failure path (see its doc comment) is honored
+// for the capabilities content too: if pidsSubdir can't be created because a
+// plain file already occupies that path, capabilities fall back to inline
+// rather than being silently dropped.
+func TestInitializeInstructionsCapabilitiesFallBackInlineOnWriteFailure(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	outputDir := t.TempDir()
+	// Block pidsSubdir with a plain file so os.MkdirAll inside spillFile
+	// fails; resolveMyOutputDir's os.RemoveAll only ever targets the
+	// pid-named leaf directory, not pidsSubdir itself, so this blocker
+	// survives into spillFile's MkdirAll call.
+	if err := os.WriteFile(filepath.Join(outputDir, pidsSubdir), []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.setupOutputDir = outputDir
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if !strings.Contains(instructions, "Available tools (use run_tool to execute):") {
+		t.Errorf("Expected capabilities to fall back inline on write failure, got:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "sandbox-mcp produced file(s) under") {
+		t.Errorf("Expected no pointer line when the spill attempt failed, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsConsolidatesAllSpilledFilesIntoOneLine verifies
+// that when both the capabilities dump and a "@output: file"-tagged setup
+// script spill in the same buildInstructions() call, they merge into
+// exactly one combined pointer line rather than two -- the same "exactly
+// one pointer line" invariant runSetupScripts' doc comment describes,
+// extended across both content sources.
+func TestInitializeInstructionsConsolidatesAllSpilledFilesIntoOneLine(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	setupDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(setupDir, "big.sh"), []byte("#!/bin/bash\n# @output: file\necho 'setup script detail'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	srv.setupDir = setupDir
+	srv.setupOutputDir = t.TempDir()
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+
+	const marker = "sandbox-mcp produced file(s) under"
+	if count := strings.Count(instructions, marker); count != 1 {
+		t.Errorf("Expected exactly one pointer line containing %q, got %d in:\n%s", marker, count, instructions)
+	}
+	if !strings.Contains(instructions, "00-capabilities.txt") || !strings.Contains(instructions, "big.txt") {
+		t.Errorf("Expected the pointer line to mention both 00-capabilities.txt and big.txt, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsCapabilitiesSpillsWithEmptySetupDir verifies
+// that capabilities still spill when setupOutputDir is configured but
+// setupDir is empty (runSetupScripts short-circuits with no scripts to
+// run), so the two content sources don't depend on each other.
+func TestInitializeInstructionsCapabilitiesSpillsWithEmptySetupDir(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	outputDir := t.TempDir()
+	srv.setupOutputDir = outputDir
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	myDir := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()))
+	entries, err := os.ReadDir(myDir)
+	if err != nil {
+		t.Fatalf("Expected spill directory %q to exist: %v", myDir, err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "00-capabilities.txt" {
+		t.Errorf("Expected exactly one spilled file (00-capabilities.txt), got %v", entries)
 	}
 }
 
