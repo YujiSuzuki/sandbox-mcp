@@ -18,6 +18,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.SetupDir != ".sandbox/sandbox-mcp-setup" {
 		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, ".sandbox/sandbox-mcp-setup")
 	}
+	if cfg.SetupOutputDir != ".sandbox/.state/setup-output" {
+		t.Errorf("SetupOutputDir = %q, want %q", cfg.SetupOutputDir, ".sandbox/.state/setup-output")
+	}
 	if cfg.UpdateCheck != true {
 		t.Errorf("UpdateCheck = %v, want true", cfg.UpdateCheck)
 	}
@@ -30,6 +33,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 	content := `scripts_dir: "/custom/scripts"
 tools_dir: "/custom/tools"
 setup_dir: "/custom/setup"
+setup_output_dir: "/custom/setup-output"
 update_check: false
 `
 	if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
@@ -49,6 +53,9 @@ update_check: false
 	}
 	if cfg.SetupDir != "/custom/setup" {
 		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, "/custom/setup")
+	}
+	if cfg.SetupOutputDir != "/custom/setup-output" {
+		t.Errorf("SetupOutputDir = %q, want %q", cfg.SetupOutputDir, "/custom/setup-output")
 	}
 	if cfg.UpdateCheck != false {
 		t.Errorf("UpdateCheck = %v, want false", cfg.UpdateCheck)
@@ -214,6 +221,7 @@ func TestLoadWithEnvVars(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "/env/scripts")
 	t.Setenv("SANDBOX_TOOLS_DIR", "/env/tools")
 	t.Setenv("SANDBOX_SETUP_DIR", "/env/setup")
+	t.Setenv("SANDBOX_SETUP_OUTPUT_DIR", "/env/setup-output")
 
 	cfg := LoadWithEnv(DefaultConfig())
 
@@ -225,6 +233,9 @@ func TestLoadWithEnvVars(t *testing.T) {
 	}
 	if cfg.SetupDir != "/env/setup" {
 		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, "/env/setup")
+	}
+	if cfg.SetupOutputDir != "/env/setup-output" {
+		t.Errorf("SetupOutputDir = %q, want %q", cfg.SetupOutputDir, "/env/setup-output")
 	}
 }
 
@@ -308,7 +319,7 @@ func TestResolveFullPriority(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
 	t.Setenv("SANDBOX_TOOLS_DIR", "")
 
-	cfg, err := Resolve(cfgFile, "", "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -336,7 +347,7 @@ func TestResolveEnvVarSurvivesPartialConfigFile(t *testing.T) {
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
 	t.Setenv("SANDBOX_TOOLS_DIR", "from-env-tools")
 
-	cfg, err := Resolve(cfgFile, "", "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -358,15 +369,16 @@ func TestResolveCLIFlagWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgFile := filepath.Join(configDir, "sandbox-mcp.yaml")
-	if err := os.WriteFile(cfgFile, []byte("scripts_dir: from-file\nsetup_dir: from-file-setup"), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte("scripts_dir: from-file\nsetup_dir: from-file-setup\nsetup_output_dir: from-file-setup-output"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Setenv("SANDBOX_SCRIPTS_DIR", "from-env")
 	t.Setenv("SANDBOX_SETUP_DIR", "from-env-setup")
+	t.Setenv("SANDBOX_SETUP_OUTPUT_DIR", "from-env-setup-output")
 
 	// CLI flag should win over everything
-	cfg, err := Resolve(cfgFile, "from-flag", "", "from-flag-setup", "")
+	cfg, err := Resolve(cfgFile, "from-flag", "", "from-flag-setup", "from-flag-setup-output", "")
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -377,13 +389,16 @@ func TestResolveCLIFlagWins(t *testing.T) {
 	if cfg.SetupDir != "from-flag-setup" {
 		t.Errorf("SetupDir = %q, want %q (CLI flag should win over config file and env var)", cfg.SetupDir, "from-flag-setup")
 	}
+	if cfg.SetupOutputDir != "from-flag-setup-output" {
+		t.Errorf("SetupOutputDir = %q, want %q (CLI flag should win over config file and env var)", cfg.SetupOutputDir, "from-flag-setup-output")
+	}
 }
 
 func TestResolveWithWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 
 	// No config file, no flags → relative defaults resolved against workspace
-	cfg, err := Resolve("", "", "", "", workspace)
+	cfg, err := Resolve("", "", "", "", "", workspace)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -391,6 +406,7 @@ func TestResolveWithWorkspace(t *testing.T) {
 	wantScripts := filepath.Join(workspace, ".sandbox/scripts")
 	wantTools := filepath.Join(workspace, ".sandbox/tools")
 	wantSetup := filepath.Join(workspace, ".sandbox/sandbox-mcp-setup")
+	wantSetupOutput := filepath.Join(workspace, ".sandbox/.state/setup-output")
 
 	if cfg.ScriptsDir != wantScripts {
 		t.Errorf("ScriptsDir = %q, want %q", cfg.ScriptsDir, wantScripts)
@@ -401,6 +417,9 @@ func TestResolveWithWorkspace(t *testing.T) {
 	if cfg.SetupDir != wantSetup {
 		t.Errorf("SetupDir = %q, want %q", cfg.SetupDir, wantSetup)
 	}
+	if cfg.SetupOutputDir != wantSetupOutput {
+		t.Errorf("SetupOutputDir = %q, want %q", cfg.SetupOutputDir, wantSetupOutput)
+	}
 }
 
 func TestResolveInvalidConfigFileReturnsError(t *testing.T) {
@@ -410,7 +429,7 @@ func TestResolveInvalidConfigFileReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := Resolve(cfgFile, "", "", "", "")
+	cfg, err := Resolve(cfgFile, "", "", "", "", "")
 	if err == nil {
 		t.Error("Expected error for invalid config file")
 	}
@@ -431,7 +450,7 @@ func TestResolveWorkspaceDoesNotOverrideAbsPath(t *testing.T) {
 	workspace := t.TempDir()
 
 	// CLI flag provides an absolute path → workspace should not change it
-	cfg, err := Resolve("", "/abs/scripts", "/abs/tools", "/abs/setup", workspace)
+	cfg, err := Resolve("", "/abs/scripts", "/abs/tools", "/abs/setup", "", workspace)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -444,6 +463,31 @@ func TestResolveWorkspaceDoesNotOverrideAbsPath(t *testing.T) {
 	}
 	if cfg.SetupDir != "/abs/setup" {
 		t.Errorf("SetupDir = %q, want %q (absolute path should not be changed)", cfg.SetupDir, "/abs/setup")
+	}
+}
+
+// TestResolveSetupOutputDirFileOverridesEnv verifies setup_output_dir follows
+// the same priority chain (config file > env var > default) as setup_dir,
+// and that a relative value from the config file still gets resolved against
+// workspace.
+func TestResolveSetupOutputDirFileOverridesEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "sandbox-mcp.yaml")
+	if err := os.WriteFile(cfgFile, []byte("setup_output_dir: from-file-output"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SANDBOX_SETUP_OUTPUT_DIR", "/env/setup-output")
+
+	workspace := t.TempDir()
+	cfg, err := Resolve(cfgFile, "", "", "", "", workspace)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	want := filepath.Join(workspace, "from-file-output")
+	if cfg.SetupOutputDir != want {
+		t.Errorf("SetupOutputDir = %q, want %q (config file should override env and resolve against workspace)", cfg.SetupOutputDir, want)
 	}
 }
 
@@ -462,12 +506,36 @@ func TestResolveSetupDirEmptyStringDisables(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
-	cfg, err := Resolve(cfgFile, "", "", "", workspace)
+	cfg, err := Resolve(cfgFile, "", "", "", "", workspace)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
 
 	if cfg.SetupDir != "" {
 		t.Errorf("SetupDir = %q, want empty string (must not resolve to workspace root %q)", cfg.SetupDir, workspace)
+	}
+}
+
+// TestResolveSetupOutputDirEmptyStringDisables mirrors
+// TestResolveSetupDirEmptyStringDisables: an explicit empty setup_output_dir
+// must disable file-spilling rather than resolving to the workspace root.
+// Without this guard, filepath.Join(workspace, "") would return the
+// workspace root itself, and pruneStaleOutputDirs would then recursively
+// delete any integer-named directory found directly under it.
+func TestResolveSetupOutputDirEmptyStringDisables(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "sandbox-mcp.yaml")
+	if err := os.WriteFile(cfgFile, []byte(`setup_output_dir: ""`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := t.TempDir()
+	cfg, err := Resolve(cfgFile, "", "", "", "", workspace)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	if cfg.SetupOutputDir != "" {
+		t.Errorf("SetupOutputDir = %q, want empty string (must not resolve to workspace root %q)", cfg.SetupOutputDir, workspace)
 	}
 }

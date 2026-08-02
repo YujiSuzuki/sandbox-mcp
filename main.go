@@ -50,6 +50,7 @@ func main() {
 	flagScriptsDir := flag.String("scripts-dir", "", "Path to scripts directory (default: .sandbox/scripts)")
 	flagToolsDir := flag.String("tools-dir", "", "Path to tools directory (default: .sandbox/tools)")
 	flagSetupDir := flag.String("setup-dir", "", "Path to setup-scripts directory (default: .sandbox/sandbox-mcp-setup)")
+	flagSetupOutputDir := flag.String("setup-output-dir", "", "Path to setup-script output spill directory (default: .sandbox/.state/setup-output)")
 	flagConfig := flag.String("config", "", "Path to config file (default: auto-detect)")
 	flagWorkspace := flag.String("workspace", "", "Workspace root directory (resolves scripts/tools/setup dirs relative to it)")
 	flag.Parse()
@@ -84,7 +85,7 @@ func main() {
 	if configFile == "" {
 		configFile = config.FindConfigFile(workspaceDir)
 	}
-	cfg, cfgErr := config.Resolve(configFile, *flagScriptsDir, *flagToolsDir, *flagSetupDir, workspaceDir)
+	cfg, cfgErr := config.Resolve(configFile, *flagScriptsDir, *flagToolsDir, *flagSetupDir, *flagSetupOutputDir, workspaceDir)
 	if cfgErr != nil {
 		slog.Warn("config file error, using defaults/env", "file", configFile, "error", cfgErr)
 	}
@@ -93,6 +94,7 @@ func main() {
 		cfg.ScriptsDir,
 		cfg.ToolsDir,
 		cfg.SetupDir,
+		cfg.SetupOutputDir,
 		version,
 		workspaceDir,
 	)

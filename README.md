@@ -89,6 +89,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 | `--scripts-dir` | `.sandbox/scripts` | Path to scripts directory |
 | `--tools-dir` | `.sandbox/tools` | Path to tools directory |
 | `--setup-dir` | `.sandbox/sandbox-mcp-setup` | Path to setup-scripts directory |
+| `--setup-output-dir` | `.sandbox/.state/setup-output` | Path to setup-script output spill directory (see [`@output: file`](#setup-scripts-sandboxsandbox-mcp-setup)) |
 | `--config` | (auto-detect) | Path to config file |
 | `--workspace` | (CWD) | Workspace root for resolving relative paths |
 
@@ -102,10 +103,10 @@ sandbox-mcp version
 
 Configuration is resolved with the following priority (highest first):
 
-1. CLI flags (`--scripts-dir`, `--tools-dir`, `--setup-dir`)
+1. CLI flags (`--scripts-dir`, `--tools-dir`, `--setup-dir`, `--setup-output-dir`)
 2. Config file
-3. Environment variables (`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`)
-4. Defaults (`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`)
+3. Environment variables (`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`, `SANDBOX_SETUP_OUTPUT_DIR`)
+4. Defaults (`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`, `.sandbox/.state/setup-output`)
 
 #### Config File
 
@@ -118,6 +119,7 @@ SandboxMCP looks for a config file in these locations:
 scripts_dir: ".sandbox/scripts"
 tools_dir: ".sandbox/tools"
 setup_dir: ".sandbox/sandbox-mcp-setup"
+setup_output_dir: ".sandbox/.state/setup-output"
 ```
 
 > **Tip:** To disable the [setup-scripts feature](#setup-scripts-sandboxsandbox-mcp-setup) entirely, set `setup_dir: ""` (it does not fall back to the workspace root).
@@ -177,6 +179,16 @@ find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
       echo "- $rel (branch: $branch)"
     done
 ```
+
+A script's header comment can also declare `# @output: file` to write its stdout to a file instead of inlining it into `instructions`:
+
+```bash
+#!/bin/bash
+# @output: file
+echo "This goes to a file, not directly into the instructions field."
+```
+
+`instructions` has a byte budget, and MCP clients silently truncate it once exceeded — output beyond the limit is dropped with no indication anything was cut. Tagging a script `@output: file` avoids that risk: the full stdout is written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/<script-name>.txt` (default `.sandbox/.state/setup-output`, configurable via `--setup-output-dir` / `setup_output_dir` in the config file / `SANDBOX_SETUP_OUTPUT_DIR`) instead of counting against the `instructions` budget, and `instructions` gets only a short pointer line. Stale directories left behind by past instances that are no longer running are pruned automatically. If no output directory is configured, the tag has no effect and output is inlined as usual.
 
 > **Real-world example:** see [AI Sandbox's `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) and [its architecture docs](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.md#startup-context-injection).
 
@@ -280,6 +292,14 @@ package main
 ### A tool doesn't appear in `list_tools`
 
 - Confirm it's a `.go` file directly under `--tools-dir` (default `.sandbox/tools/`) and that its name doesn't end in `_test.go`. Unlike scripts, listing doesn't check the `package` declaration.
+
+### What happens to `@output: file` if `setup_output_dir` isn't configured?
+
+The tag has no effect, and the stdout is inlined into `instructions` as usual (no error).
+
+### Do old output files written by `@output: file` clean themselves up?
+
+Yes. Directories left behind by past processes that are no longer running (`<setup-output-dir>/sandbox-mcp-pids/<pid>/`) are pruned automatically.
 
 ## Development
 

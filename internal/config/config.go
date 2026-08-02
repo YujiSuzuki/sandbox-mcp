@@ -19,6 +19,19 @@ type Config struct {
 	ToolsDir   string
 	SetupDir   string
 
+	// SetupOutputDir is where setup scripts that opt into "@output: file"
+	// (see runSetupScripts) write their stdout, instead of inlining it into
+	// the MCP instructions field. The client silently truncates that field
+	// once its byte budget is exceeded, with no indication anything was
+	// cut, so content that must reliably reach the AI needs a way to avoid
+	// competing for that budget at all.
+	// "@output: file" を指定したセットアップスクリプト(runSetupScripts 参照)の
+	// 標準出力を、MCP の instructions フィールドに埋め込む代わりに書き出す先。
+	// instructions はバイト数の上限を超えると MCP クライアント側で無音のまま
+	// 切り詰められ、何が削られたのか痕跡も残らないため、AI に確実に届けたい
+	// 内容はそもそもその予算を奪い合わないようにする必要がある。
+	SetupOutputDir string
+
 	// UpdateCheck is parsed from config (update_check, default true) but not
 	// yet consumed anywhere. Planned: on startup, check the latest sandbox-mcp
 	// GitHub release and surface it via buildInstructions() when a newer
@@ -34,10 +47,11 @@ type Config struct {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		ScriptsDir:  ".sandbox/scripts",
-		ToolsDir:    ".sandbox/tools",
-		SetupDir:    ".sandbox/sandbox-mcp-setup",
-		UpdateCheck: true,
+		ScriptsDir:     ".sandbox/scripts",
+		ToolsDir:       ".sandbox/tools",
+		SetupDir:       ".sandbox/sandbox-mcp-setup",
+		SetupOutputDir: ".sandbox/.state/setup-output",
+		UpdateCheck:    true,
 	}
 }
 
@@ -73,6 +87,9 @@ func LoadFile(path string) (Config, error) {
 	if v, ok := parsed["setup_dir"]; ok {
 		cfg.SetupDir = v
 	}
+	if v, ok := parsed["setup_output_dir"]; ok {
+		cfg.SetupOutputDir = v
+	}
 	if v, ok := parsed["update_check"]; ok {
 		cfg.UpdateCheck = (v == "true")
 	}
@@ -91,6 +108,9 @@ func LoadWithEnv(cfg Config) Config {
 	}
 	if v := os.Getenv("SANDBOX_SETUP_DIR"); v != "" {
 		cfg.SetupDir = v
+	}
+	if v := os.Getenv("SANDBOX_SETUP_OUTPUT_DIR"); v != "" {
+		cfg.SetupOutputDir = v
 	}
 	return cfg
 }
@@ -117,11 +137,11 @@ func FindConfigFile(workspaceDir string) string {
 }
 
 // Resolve loads config with full priority chain.
-// CLI flag values should be passed as flagScriptsDir, flagToolsDir, and
-// flagSetupDir (empty string means "not specified").
+// CLI flag values should be passed as flagScriptsDir, flagToolsDir,
+// flagSetupDir, and flagSetupOutputDir (empty string means "not specified").
 // workspace must be an absolute path (callers should use filepath.Abs before
-// calling); when non-empty, relative ScriptsDir/ToolsDir/SetupDir values are
-// joined against it to produce absolute paths.
+// calling); when non-empty, relative ScriptsDir/ToolsDir/SetupDir/
+// SetupOutputDir values are joined against it to produce absolute paths.
 //
 // Priority: CLI flags > config file > env vars > defaults
 //
@@ -137,7 +157,7 @@ func FindConfigFile(workspaceDir string) string {
 // If configFile is specified but cannot be parsed, the error is returned along
 // with the config resolved from lower-priority layers (env vars and defaults).
 // Callers should log a warning and continue rather than aborting.
-func Resolve(configFile, flagScriptsDir, flagToolsDir, flagSetupDir, workspace string) (Config, error) {
+func Resolve(configFile, flagScriptsDir, flagToolsDir, flagSetupDir, flagSetupOutputDir, workspace string) (Config, error) {
 	// Start with defaults
 	cfg := DefaultConfig()
 
@@ -165,6 +185,9 @@ func Resolve(configFile, flagScriptsDir, flagToolsDir, flagSetupDir, workspace s
 	if flagSetupDir != "" {
 		cfg.SetupDir = flagSetupDir
 	}
+	if flagSetupOutputDir != "" {
+		cfg.SetupOutputDir = flagSetupOutputDir
+	}
 
 	// Layer 4: resolve relative paths against workspace
 	// workspace が指定されていれば相対パスを絶対パスに解決
@@ -177,6 +200,9 @@ func Resolve(configFile, flagScriptsDir, flagToolsDir, flagSetupDir, workspace s
 		}
 		if cfg.SetupDir != "" && !filepath.IsAbs(cfg.SetupDir) {
 			cfg.SetupDir = filepath.Join(workspace, cfg.SetupDir)
+		}
+		if cfg.SetupOutputDir != "" && !filepath.IsAbs(cfg.SetupOutputDir) {
+			cfg.SetupOutputDir = filepath.Join(workspace, cfg.SetupOutputDir)
 		}
 	}
 
@@ -212,6 +238,9 @@ func mergeFileConfig(base Config, path string) (Config, error) {
 	}
 	if v, ok := parsed["setup_dir"]; ok {
 		base.SetupDir = v
+	}
+	if v, ok := parsed["setup_output_dir"]; ok {
+		base.SetupOutputDir = v
 	}
 	if v, ok := parsed["update_check"]; ok {
 		base.UpdateCheck = (v == "true")

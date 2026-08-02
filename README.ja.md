@@ -89,6 +89,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 | `--scripts-dir` | `.sandbox/scripts` | スクリプトディレクトリのパス |
 | `--tools-dir` | `.sandbox/tools` | ツールディレクトリのパス |
 | `--setup-dir` | `.sandbox/sandbox-mcp-setup` | セットアップスクリプトディレクトリのパス |
+| `--setup-output-dir` | `.sandbox/.state/setup-output` | セットアップスクリプトの出力書き出し先ディレクトリのパス（[`@output: file`](#セットアップスクリプトsandboxsandbox-mcp-setup)参照） |
 | `--config` | （自動検出） | 設定ファイルのパス |
 | `--workspace` | （CWD） | 相対パスを解決する起点となるワークスペースルート |
 
@@ -102,10 +103,10 @@ sandbox-mcp version
 
 設定は以下の優先順位で解決されます（上が最優先）:
 
-1. CLI フラグ（`--scripts-dir`, `--tools-dir`, `--setup-dir`）
+1. CLI フラグ（`--scripts-dir`, `--tools-dir`, `--setup-dir`, `--setup-output-dir`）
 2. 設定ファイル
-3. 環境変数（`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`）
-4. デフォルト値（`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`）
+3. 環境変数（`SANDBOX_SCRIPTS_DIR`, `SANDBOX_TOOLS_DIR`, `SANDBOX_SETUP_DIR`, `SANDBOX_SETUP_OUTPUT_DIR`）
+4. デフォルト値（`.sandbox/scripts`, `.sandbox/tools`, `.sandbox/sandbox-mcp-setup`, `.sandbox/.state/setup-output`）
 
 #### 設定ファイル
 
@@ -118,6 +119,7 @@ sandbox-mcp version
 scripts_dir: ".sandbox/scripts"
 tools_dir: ".sandbox/tools"
 setup_dir: ".sandbox/sandbox-mcp-setup"
+setup_output_dir: ".sandbox/.state/setup-output"
 ```
 
 > **ヒント:** [セットアップスクリプト機能](#セットアップスクリプトsandboxsandbox-mcp-setup)を無効化するには `setup_dir: ""` を指定してください（ワークスペースルートへのフォールバックにはなりません）。
@@ -177,6 +179,16 @@ find "$WORKSPACE" -maxdepth 3 -name ".git" -type d 2>/dev/null \
       echo "- $rel (branch: $branch)"
     done
 ```
+
+`instructions` にはバイト数の上限があり、超過するとMCPクライアント側で無音のまま切り詰められます（何が削られたのか手がかりは残りません）。この切り詰めリスクを避けるため、スクリプト冒頭のコメントに `# @output: file` と書くと、標準出力を `instructions` に直接埋め込む代わりに、ファイルへ書き出すことができます。
+
+```bash
+#!/bin/bash
+# @output: file
+echo "この内容は instructions ではなくファイルに書き出されます。"
+```
+
+標準出力は `instructions` のバイト予算を消費する代わりに `<setup-output-dir>/sandbox-mcp-pids/<pid>/<スクリプト名>.txt`（デフォルトは `.sandbox/.state/setup-output`。`--setup-output-dir` / 設定ファイルの `setup_output_dir` / 環境変数 `SANDBOX_SETUP_OUTPUT_DIR` で変更可能）へ書き出され、`instructions` には短いポインタ行だけが残ります。
 
 > **実際の運用例:** [AI Sandbox の `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) と [そのアーキテクチャドキュメント](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.ja.md#起動時コンテキスト注入) を参照してください。
 
@@ -281,7 +293,15 @@ package main
 
 ### ツールが `list_tools` に表示されない
 
-- `--tools-dir`（デフォルト `.sandbox/tools/`）直下の `.go` ファイルで、ファイル名が `_test.go` で終わっていないか確認してください。スクリプトと異なり、一覧表示時に `package` 宣言の中身はチェックされません。
+- `--tools-dir`(デフォルト `.sandbox/tools/`)直下の `.go` ファイルで、ファイル名が `_test.go` で終わっていないか確認してください。スクリプトと異なり、一覧表示時に `package` 宣言の中身はチェックされません。
+
+### `setup_output_dir` を設定していない場合、`@output: file` はどうなる？
+
+タグは何もせず、標準出力は通常通り `instructions` にそのまま埋め込まれます(エラーにはなりません)。
+
+### `@output: file` で書き出した過去の出力ファイルは自動で消える？
+
+はい。もう動いていない過去のプロセスのディレクトリ(`<setup-output-dir>/sandbox-mcp-pids/<pid>/`)は自動的に削除されます。
 
 ## 開発
 
