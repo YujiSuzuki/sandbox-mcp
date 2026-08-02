@@ -74,7 +74,7 @@ func initServer(t *testing.T) *Server {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	return srv
 }
@@ -87,7 +87,7 @@ func initServerWithFixtures(t *testing.T) *Server {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	return srv
 }
@@ -113,7 +113,7 @@ func TestInitialize(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	}
 
 	resp := srv.HandleRequest(req)
@@ -143,7 +143,7 @@ func TestInitializeInstructionsIncludesAdvertisedScripts(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -187,7 +187,7 @@ func TestToolsListAfterInit(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	}
 	srv.HandleRequest(initReq)
 
@@ -264,7 +264,7 @@ func TestNotificationNoResponse(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 
 	req := &jsonrpc.Request{
@@ -547,7 +547,7 @@ func TestToolsCallRunToolNonZeroExit(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 
 	resp := callTool(srv, "run_tool", `{"name":"fail.go"}`)
@@ -662,7 +662,7 @@ func TestInitializeInstructionsIncludesGitRepos(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -687,7 +687,7 @@ func TestInitializeInstructionsNoGitReposSection(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1103,7 +1103,7 @@ func TestInitializeInstructionsIncludesSetupOutput(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1141,7 +1141,7 @@ func TestHandleInitialize_SecondCallReusesCachedInstructions(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	}
 	resp1 := srv.HandleRequest(req)
 	resp2 := srv.HandleRequest(req)
@@ -1184,7 +1184,7 @@ func TestInitializeInstructionsSetupDirEmpty(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1200,7 +1200,7 @@ func TestInitializeInstructionsSetupDirEmpty(t *testing.T) {
 // TestInitializeInstructionsSpillsCapabilitiesWhenOutputDirConfigured
 // verifies that the header/tools/scripts/repos section built directly in
 // buildInstructions (previously always inlined, unlike setup scripts'
-// opt-in "@output: file") is itself spilled to 00-capabilities.txt whenever
+// opt-in "@output: file") is itself spilled to sandbox-mcp-capabilities.txt whenever
 // setupOutputDir is configured, shrinking sandbox-mcp's own footprint in the
 // shared instructions byte budget (see runSetupScripts' doc comment on
 // truncation risk).
@@ -1213,7 +1213,7 @@ func TestInitializeInstructionsSpillsCapabilitiesWhenOutputDirConfigured(t *test
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1225,11 +1225,11 @@ func TestInitializeInstructionsSpillsCapabilitiesWhenOutputDirConfigured(t *test
 	if strings.Contains(instructions, "Available tools") || strings.Contains(instructions, "install-slash-command.sh") {
 		t.Errorf("Expected capabilities content NOT to be inlined, got:\n%s", instructions)
 	}
-	if !strings.Contains(instructions, "00-capabilities.txt") {
-		t.Errorf("Expected pointer line to mention 00-capabilities.txt, got:\n%s", instructions)
+	if !strings.Contains(instructions, "sandbox-mcp-capabilities.txt") {
+		t.Errorf("Expected pointer line to mention sandbox-mcp-capabilities.txt, got:\n%s", instructions)
 	}
 
-	spilledFile := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()), "00-capabilities.txt")
+	spilledFile := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()), "sandbox-mcp-capabilities.txt")
 	written, err := os.ReadFile(spilledFile)
 	if err != nil {
 		t.Fatalf("Expected spilled file %q to exist: %v", spilledFile, err)
@@ -1250,7 +1250,7 @@ func TestInitializeInstructionsCapabilitiesFallBackInlineWhenOutputDirEmpty(t *t
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1284,7 +1284,7 @@ func TestInitializeInstructionsCapabilitiesFallBackInlineOnWriteFailure(t *testi
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1319,7 +1319,7 @@ func TestInitializeInstructionsConsolidatesAllSpilledFilesIntoOneLine(t *testing
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1332,8 +1332,51 @@ func TestInitializeInstructionsConsolidatesAllSpilledFilesIntoOneLine(t *testing
 	if count := strings.Count(instructions, marker); count != 1 {
 		t.Errorf("Expected exactly one pointer line containing %q, got %d in:\n%s", marker, count, instructions)
 	}
-	if !strings.Contains(instructions, "00-capabilities.txt") || !strings.Contains(instructions, "big.txt") {
-		t.Errorf("Expected the pointer line to mention both 00-capabilities.txt and big.txt, got:\n%s", instructions)
+	if !strings.Contains(instructions, "sandbox-mcp-capabilities.txt") || !strings.Contains(instructions, "big.txt") {
+		t.Errorf("Expected the pointer line to mention both sandbox-mcp-capabilities.txt and big.txt, got:\n%s", instructions)
+	}
+}
+
+// TestInitializeInstructionsCapabilitiesFilenameDoesNotCollideWithSetupScript
+// verifies that a setup script named after a plausible numbered-prefix
+// convention (e.g. "00-capabilities.sh", tagged "@output: file") does not
+// clobber the capabilities dump: the two must resolve to different spilled
+// filenames, and both must appear intact in the merged pointer line.
+func TestInitializeInstructionsCapabilitiesFilenameDoesNotCollideWithSetupScript(t *testing.T) {
+	srv := newServerWithFixtures(t)
+	setupDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(setupDir, "00-capabilities.sh"), []byte("#!/bin/bash\n# @output: file\necho 'setup script detail'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	srv.setupDir = setupDir
+	outputDir := t.TempDir()
+	srv.setupOutputDir = outputDir
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	myDir := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()))
+	capabilities, err := os.ReadFile(filepath.Join(myDir, "sandbox-mcp-capabilities.txt"))
+	if err != nil {
+		t.Fatalf("Expected capabilities spill file to exist: %v", err)
+	}
+	if !strings.Contains(string(capabilities), "Available tools") {
+		t.Errorf("Expected capabilities file to retain its own content, got:\n%s", string(capabilities))
+	}
+
+	setupOutput, err := os.ReadFile(filepath.Join(myDir, "00-capabilities.txt"))
+	if err != nil {
+		t.Fatalf("Expected setup script spill file to exist: %v", err)
+	}
+	if !strings.Contains(string(setupOutput), "setup script detail") {
+		t.Errorf("Expected setup script file to retain its own content, got:\n%s", string(setupOutput))
 	}
 }
 
@@ -1350,7 +1393,7 @@ func TestInitializeInstructionsCapabilitiesSpillsWithEmptySetupDir(t *testing.T)
 		JSONRPC: "2.0",
 		ID:      float64(1),
 		Method:  "initialize",
-		Params:  json.RawMessage(`{"clientInfo":{"name":"test"}}`),
+		Params:  json.RawMessage(`{"clientInfo":{"name":"claude-code"}}`),
 	})
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("Unexpected error: %v", resp.Error)
@@ -1361,8 +1404,8 @@ func TestInitializeInstructionsCapabilitiesSpillsWithEmptySetupDir(t *testing.T)
 	if err != nil {
 		t.Fatalf("Expected spill directory %q to exist: %v", myDir, err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "00-capabilities.txt" {
-		t.Errorf("Expected exactly one spilled file (00-capabilities.txt), got %v", entries)
+	if len(entries) != 1 || entries[0].Name() != "sandbox-mcp-capabilities.txt" {
+		t.Errorf("Expected exactly one spilled file (sandbox-mcp-capabilities.txt), got %v", entries)
 	}
 }
 
@@ -1388,5 +1431,144 @@ func TestToolsCallListScriptsFilterCategory(t *testing.T) {
 	}
 	if !strings.Contains(text, "test-validate-secrets.sh") {
 		t.Error("Expected test-validate-secrets.sh in test category results")
+	}
+}
+
+// TestBuildInstructions_UnknownClientFallsBackInlineEvenWithOutputDirConfigured
+// verifies that spilling stays gated on the connecting client's identity:
+// an unrecognized client must never get spilled output, even with
+// setupOutputDir fully configured and a real @output: file script present.
+func TestBuildInstructions_UnknownClientFallsBackInlineEvenWithOutputDirConfigured(t *testing.T) {
+	workspaceDir := t.TempDir()
+	setupDir := filepath.Join(workspaceDir, "setup")
+	if err := os.MkdirAll(setupDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outputDir := t.TempDir()
+	script := "#!/bin/bash\n# @output: file\necho 'spilled content'\n"
+	if err := os.WriteFile(filepath.Join(setupDir, "10-thing.sh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(t.TempDir(), t.TempDir(), setupDir, outputDir, "test", workspaceDir)
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"clientInfo":{"name":"gemini-cli"}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if !strings.Contains(instructions, "spilled content") {
+		t.Errorf("Expected unrecognized client to get inline output, got:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "10-thing.txt") {
+		t.Errorf("Expected no spill pointer for unrecognized client, got:\n%s", instructions)
+	}
+
+	spilledFile := filepath.Join(outputDir, pidsSubdir, strconv.Itoa(os.Getpid()), "10-thing.txt")
+	if _, err := os.Stat(spilledFile); err == nil {
+		t.Errorf("Expected no file to be spilled for unrecognized client, but found %q", spilledFile)
+	}
+}
+
+// TestHandleInitialize_MissingClientInfoDefaultsToInline verifies that a
+// client omitting clientInfo entirely (permitted by MCP) is treated the
+// same as an unrecognized client: safe inline fallback, no error.
+func TestHandleInitialize_MissingClientInfoDefaultsToInline(t *testing.T) {
+	workspaceDir := t.TempDir()
+	setupDir := filepath.Join(workspaceDir, "setup")
+	if err := os.MkdirAll(setupDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outputDir := t.TempDir()
+	script := "#!/bin/bash\n# @output: file\necho 'spilled content'\n"
+	if err := os.WriteFile(filepath.Join(setupDir, "10-thing.sh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(t.TempDir(), t.TempDir(), setupDir, outputDir, "test", workspaceDir)
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("Unexpected error: %v", resp.Error)
+	}
+
+	result, _ := resp.Result.(map[string]any)
+	instructions, _ := result["instructions"].(string)
+	if !strings.Contains(instructions, "spilled content") {
+		t.Errorf("Expected missing clientInfo to fall back to inline, got:\n%s", instructions)
+	}
+}
+
+// TestHandleInitialize_MalformedParamsDoesNotCrash verifies that garbage
+// params never breaks "initialize" itself -- clientInfo parsing must
+// degrade to "unknown client", not fail the request.
+func TestHandleInitialize_MalformedParamsDoesNotCrash(t *testing.T) {
+	srv := newTestServer(t)
+
+	resp := srv.HandleRequest(&jsonrpc.Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`not json`),
+	})
+	if resp == nil {
+		t.Fatal("Expected a response")
+	}
+	if resp.Error != nil {
+		t.Fatalf("Expected initialize to succeed despite malformed params, got error: %v", resp.Error)
+	}
+}
+
+func TestParseClientName(t *testing.T) {
+	tests := []struct {
+		name   string
+		params string
+		want   string
+	}{
+		{"valid clientInfo", `{"clientInfo":{"name":"claude-code"}}`, "claude-code"},
+		{"missing clientInfo", `{}`, ""},
+		{"missing name", `{"clientInfo":{}}`, ""},
+		{"malformed JSON", `not json`, ""},
+		{"empty params", ``, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseClientName(json.RawMessage(tt.params))
+			if got != tt.want {
+				t.Errorf("parseClientName(%q) = %q, want %q", tt.params, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSpillSafeClient(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"claude-code", true},
+		{"Claude-Code", false},
+		{"CLAUDE-CODE", false},
+		{"", false},
+		{"gemini-cli", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSpillSafeClient(tt.name); got != tt.want {
+				t.Errorf("isSpillSafeClient(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
 	}
 }

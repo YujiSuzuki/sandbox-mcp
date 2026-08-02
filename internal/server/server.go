@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,7 +84,8 @@ func (s *Server) HandleRequest(req *jsonrpc.Request) *jsonrpc.Response {
 func (s *Server) handleInitialize(req *jsonrpc.Request) *jsonrpc.Response {
 	s.initialized = true
 	if s.cachedInstructions == nil {
-		instructions := s.buildInstructions()
+		clientName := parseClientName(req.Params)
+		instructions := s.buildInstructions(clientName)
 		s.cachedInstructions = &instructions
 	}
 	result := map[string]any{
@@ -100,7 +102,47 @@ func (s *Server) handleInitialize(req *jsonrpc.Request) *jsonrpc.Response {
 	return jsonrpc.NewResponse(req.ID, result)
 }
 
-func (s *Server) buildInstructions() string {
+// parseClientName best-effort extracts clientInfo.name from an "initialize"
+// request's params. Any failure (missing clientInfo, malformed JSON, empty
+// params) returns "" rather than an error -- clientInfo is optional and
+// varies by MCP client, so a client that omits or malforms it must still be
+// able to initialize successfully, just without qualifying as spill-safe
+// below.
+func parseClientName(params json.RawMessage) string {
+	var p struct {
+		ClientInfo struct {
+			Name string `json:"name"`
+		} `json:"clientInfo"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return ""
+	}
+	return p.ClientInfo.Name
+}
+
+// spillSafeClients holds MCP clientInfo.name values known to (a) enforce a
+// byte budget on "instructions" that silently truncates when exceeded, and
+// (b) have a matching mechanism that reliably resurfaces spilled file
+// contents every turn (currently: ai-sandbox's setup-output-reminder.sh, a
+// Claude Code-only .claude/settings.json hook). Spilling for any other or
+// unknown client would leave content behind a one-line pointer with nothing
+// to resurface it -- worse than the truncation this mechanism exists to
+// avoid, so the default for anything not listed here is to inline instead.
+// The exact string "claude-code" is confirmed by a sibling project
+// (HostMCP) logging client_name=claude-code for real Claude Code
+// connections; kept as an exact-match allowlist (not a prefix match) so
+// adding a new client is a deliberate one-line change once it has its own
+// resurfacing mechanism, not an accidental match.
+var spillSafeClients = map[string]struct{}{
+	"claude-code": {},
+}
+
+func isSpillSafeClient(name string) bool {
+	_, ok := spillSafeClients[name]
+	return ok
+}
+
+func (s *Server) buildInstructions(clientName string) string {
 	var capabilities strings.Builder
 	capabilities.WriteString("sandbox-mcp provides scripts and tools for AI-assisted development.\n\n")
 
@@ -141,13 +183,20 @@ func (s *Server) buildInstructions() string {
 	// Resolved at most once per buildInstructions() call (itself invoked at
 	// most once per process, see cachedInstructions) and shared by every
 	// content source spilled below -- resolving it more than once would wipe
-	// out whichever source already wrote into the directory.
-	myOutputDir := resolveMyOutputDir(s.setupOutputDir)
+	// out whichever source already wrote into the directory. Stays "" (i.e.
+	// spilling disabled, everything below falls back to inlining) unless
+	// clientName is recognized as spill-safe -- see spillSafeClients.
+	var myOutputDir string
+	if isSpillSafeClient(clientName) {
+		myOutputDir = resolveMyOutputDir(s.setupOutputDir)
+	} else if s.setupOutputDir != "" {
+		slog.Warn("setup-output-dir is configured but client is not recognized as spill-safe; falling back to inline instructions", "client", clientName)
+	}
 
 	var sb strings.Builder
 	var spilled []string
 
-	if fileName, ok := spillFile(myOutputDir, "00-capabilities.txt", []byte(capabilities.String())); ok {
+	if fileName, ok := spillFile(myOutputDir, "sandbox-mcp-capabilities.txt", []byte(capabilities.String())); ok {
 		spilled = append(spilled, fileName)
 	} else {
 		sb.WriteString(capabilities.String())

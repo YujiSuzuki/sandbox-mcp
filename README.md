@@ -89,7 +89,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 | `--scripts-dir` | `.sandbox/scripts` | Path to scripts directory |
 | `--tools-dir` | `.sandbox/tools` | Path to tools directory |
 | `--setup-dir` | `.sandbox/sandbox-mcp-setup` | Path to setup-scripts directory |
-| `--setup-output-dir` | `.sandbox/.state/setup-output` | Path to setup-script output spill directory (see [`@output: file`](#setup-scripts-sandboxsandbox-mcp-setup)) |
+| `--setup-output-dir` | `.sandbox/.state/setup-output` | Path to output spill directory, used both for `@output: file`-tagged setup scripts and SandboxMCP's own capabilities dump (see [Startup Context](#startup-context)) — spilling only applies for recognized clients |
 | `--config` | (auto-detect) | Path to config file |
 | `--workspace` | (CWD) | Workspace root for resolving relative paths |
 
@@ -190,9 +190,11 @@ echo "This goes to a file, not directly into the instructions field."
 
 `instructions` has a byte budget, and MCP clients silently truncate it once exceeded — output beyond the limit is dropped with no indication anything was cut. Tagging a script `@output: file` avoids that risk: the full stdout is written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/<script-name>.txt` (default `.sandbox/.state/setup-output`, configurable via `--setup-output-dir` / `setup_output_dir` in the config file / `SANDBOX_SETUP_OUTPUT_DIR`) instead of counting against the `instructions` budget, and `instructions` gets only a short pointer line. Stale directories left behind by past instances that are no longer running are pruned automatically. If no output directory is configured, the tag has no effect and output is inlined as usual.
 
-SandboxMCP's own capabilities section — the "Available tools" / "Available scripts" / nested git repos listing at the top of `instructions` — grows as you add more scripts and tools, so it's spilled the same way whenever `setup-output-dir` is configured: it's written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/00-capabilities.txt`, merged into the same single pointer line as any spilled setup scripts. This happens automatically, with no tag or extra configuration needed; if no output directory is configured, or the spill attempt fails, it stays inlined as before.
+**Spilling only ever happens for MCP clients recognized as able to reliably read the spilled files back** — currently just Claude Code (detected from the `clientInfo.name` sent in the MCP `initialize` handshake). Spilling is only safe when something guarantees the file's content actually gets seen again; the pointer line left in `instructions` is easy to miss otherwise. Any other or unrecognized client (Gemini CLI included) always gets output inlined, regardless of the `@output: file` tag or `setup-output-dir` configuration, so a byte-budget truncation risk is preferred over content silently becoming unreachable. If `setup-output-dir` is configured but the connecting client isn't recognized, sandbox-mcp logs a one-line `slog.Warn` to stderr noting the fallback.
 
-> **Real-world example:** see [AI Sandbox's `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) and [its architecture docs](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.md#startup-context-injection).
+SandboxMCP's own capabilities section — the "Available tools" / "Available scripts" / nested git repos listing at the top of `instructions` — grows as you add more scripts and tools, so it's spilled the same way whenever `setup-output-dir` is configured **and** the client is recognized: it's written to `<setup-output-dir>/sandbox-mcp-pids/<pid>/sandbox-mcp-capabilities.txt`, merged into the same single pointer line as any spilled setup scripts. This happens automatically, with no tag or extra configuration needed; if no output directory is configured, the client isn't recognized, or the spill attempt fails, it stays inlined as before.
+
+> **Real-world example:** see [AI Sandbox's `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) and [its architecture docs](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.md#startup-context-injection). That project's `setup-output-reminder.sh` — a Claude Code-only `.claude/settings.json` hook that resurfaces spilled file contents every turn — is exactly the kind of mechanism a client needs before it can be added to sandbox-mcp's client allowlist.
 
 ## Adding Scripts and Tools
 
@@ -298,6 +300,10 @@ package main
 ### What happens to `@output: file` if `setup_output_dir` isn't configured?
 
 The tag has no effect, and the stdout is inlined into `instructions` as usual (no error).
+
+### What happens to `@output: file` if the connecting client isn't Claude Code?
+
+Same as above: output stays inlined, as if no output directory were configured at all. Spilling only ever applies to clients recognized as able to reliably resurface spilled file contents (currently just `claude-code`, matched against the `clientInfo.name` sent during the MCP `initialize` handshake) — see [Setup Scripts](#setup-scripts-sandboxsandbox-mcp-setup) above for why.
 
 ### Do old output files written by `@output: file` clean themselves up?
 

@@ -89,7 +89,7 @@ claude mcp add sandbox-mcp sandbox-mcp -- --scripts-dir /path/to/scripts --tools
 | `--scripts-dir` | `.sandbox/scripts` | スクリプトディレクトリのパス |
 | `--tools-dir` | `.sandbox/tools` | ツールディレクトリのパス |
 | `--setup-dir` | `.sandbox/sandbox-mcp-setup` | セットアップスクリプトディレクトリのパス |
-| `--setup-output-dir` | `.sandbox/.state/setup-output` | セットアップスクリプトの出力書き出し先ディレクトリのパス（[`@output: file`](#セットアップスクリプトsandboxsandbox-mcp-setup)参照） |
+| `--setup-output-dir` | `.sandbox/.state/setup-output` | 出力の書き出し先ディレクトリのパス。`@output: file` タグ付きセットアップスクリプトと、SandboxMCP自身のcapabilitiesダンプの両方で使用（[起動時コンテキスト](#起動時コンテキスト)参照） — 書き出しは認識されたクライアントに対してのみ行われます |
 | `--config` | （自動検出） | 設定ファイルのパス |
 | `--workspace` | （CWD） | 相対パスを解決する起点となるワークスペースルート |
 
@@ -190,9 +190,11 @@ echo "この内容は instructions ではなくファイルに書き出されま
 
 標準出力は `instructions` のバイト予算を消費する代わりに `<setup-output-dir>/sandbox-mcp-pids/<pid>/<スクリプト名>.txt`（デフォルトは `.sandbox/.state/setup-output`。`--setup-output-dir` / 設定ファイルの `setup_output_dir` / 環境変数 `SANDBOX_SETUP_OUTPUT_DIR` で変更可能）へ書き出され、`instructions` には短いポインタ行だけが残ります。
 
-SandboxMCP自身が持つ「Available tools」「Available scripts」「ネストgitリポジトリ一覧」という`instructions`冒頭のセクションも、スクリプトやツールを追加していくほど肥大化していく性質を持つため、`setup-output-dir`が設定されていれば同じ仕組みで`<setup-output-dir>/sandbox-mcp-pids/<pid>/00-capabilities.txt`へ書き出され、退避済みのセットアップスクリプトと同じ1本のポインタ行に統合されます。タグや追加設定なしに常にこの動作になり、出力先ディレクトリが未設定の場合や書き出しに失敗した場合は、従来通りインラインのままです。
+**ファイルへの書き出しは、書き出した内容を確実に読み返せると判断されたMCPクライアントに対してのみ行われます** — 現時点では Claude Code のみです（MCP の `initialize` ハンドシェイクで送られる `clientInfo.name` から判定）。書き出しが安全と言えるのは、その内容が確実に再びAIの目に触れる仕組みがある場合に限られ、そうでなければ `instructions` に残るポインタ行は見落とされがちです。それ以外の未対応クライアント（Gemini CLI を含む）では、`@output: file` タグや `setup-output-dir` の設定にかかわらず、常に埋め込み方式のままになります。これは、内容が誰にも読まれずに埋もれてしまうより、バイト数上限による切り詰めリスクの方がまだましだという判断です。`setup-output-dir` が設定されているのに接続クライアントが認識されない場合は、フォールバックした旨を1行の `slog.Warn` として標準エラー出力に記録します。
 
-> **実際の運用例:** [AI Sandbox の `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) と [そのアーキテクチャドキュメント](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.ja.md#起動時コンテキスト注入) を参照してください。
+SandboxMCP自身が持つ「Available tools」「Available scripts」「ネストgitリポジトリ一覧」という`instructions`冒頭のセクションも、スクリプトやツールを追加していくほど肥大化していく性質を持つため、`setup-output-dir`が設定されており、かつクライアントが認識されている場合には同じ仕組みで`<setup-output-dir>/sandbox-mcp-pids/<pid>/sandbox-mcp-capabilities.txt`へ書き出され、退避済みのセットアップスクリプトと同じ1本のポインタ行に統合されます。タグや追加設定なしに常にこの動作になり、出力先ディレクトリが未設定の場合、クライアントが認識されない場合、または書き出しに失敗した場合は、従来通りインラインのままです。
+
+> **実際の運用例:** [AI Sandbox の `.sandbox/sandbox-mcp-setup/`](https://github.com/YujiSuzuki/ai-sandbox/tree/main/.sandbox/sandbox-mcp-setup) と [そのアーキテクチャドキュメント](https://github.com/YujiSuzuki/ai-sandbox/blob/main/docs/architecture.ja.md#起動時コンテキスト注入) を参照してください。同プロジェクトの `setup-output-reminder.sh` — 書き出されたファイルの内容を毎ターン呼び戻す、Claude Code専用の `.claude/settings.json` フック — は、クライアントが sandbox-mcp の許可リストに加わるために必要な仕組みの好例です。
 
 ## スクリプトとツールの追加
 
@@ -300,6 +302,10 @@ package main
 ### `setup_output_dir` を設定していない場合、`@output: file` はどうなる？
 
 タグは何もせず、標準出力は通常通り `instructions` にそのまま埋め込まれます(エラーにはなりません)。
+
+### 接続クライアントが Claude Code でない場合、`@output: file` はどうなる？
+
+上記と同様に、出力先ディレクトリが未設定の場合と同じく、常にインライン埋め込みのままになります。書き出しが行われるのは、書き出した内容を確実に呼び戻せると認識されているクライアント(現時点では `clientInfo.name` が `claude-code` と一致する場合のみ)に限られます — 理由は上記の[セットアップスクリプト](#セットアップスクリプトsandboxsandbox-mcp-setup)の節を参照してください。
 
 ### `@output: file` で書き出した過去の出力ファイルは自動で消える？
 
